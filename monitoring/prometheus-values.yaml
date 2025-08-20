@@ -1,0 +1,370 @@
+# 모바일 게임 서비스 모니터링 스택
+# Prometheus + Grafana + AlertManager Helm values
+
+prometheus:
+  prometheusSpec:
+    retention: 30d
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 100Gi
+          storageClassName: "fast-ssd"
+
+    # 게임 서비스 특화 설정
+    resources:
+      requests:
+        memory: 4Gi
+        cpu: 2
+      limits:
+        memory: 8Gi
+        cpu: 4
+
+    # 게임 트래픽 특성을 고려한 설정
+    scrapeInterval: 15s
+    evaluationInterval: 15s
+
+    # 게임 서비스 타겟 설정
+    additionalScrapeConfigs:
+      - job_name: 'game-server'
+        static_configs:
+          - targets: ['game-server:8080']
+        metrics_path: '/metrics'
+        scrape_interval: 10s
+        scrape_timeout: 5s
+        honor_labels: true
+
+      - job_name: 'matchmaking-service'
+        static_configs:
+          - targets: ['matchmaking:8080']
+        metrics_path: '/metrics'
+        scrape_interval: 10s
+
+      - job_name: 'game-persistence'
+        static_configs:
+          - targets: ['game-persistence:8080']
+        metrics_path: '/metrics'
+        scrape_interval: 10s
+
+      - job_name: 'game-client-metrics'
+        static_configs:
+          - targets: ['game-client-metrics:8080']
+        metrics_path: '/metrics'
+        scrape_interval: 30s
+
+      - job_name: 'game-load-balancer'
+        static_configs:
+          - targets: ['game-lb:8080']
+        metrics_path: '/metrics'
+        scrape_interval: 10s
+
+    # 게임 특화 규칙 파일
+    ruleSelector:
+      matchLabels:
+        app: prometheus
+        component: rules
+        game-service: "true"
+
+    # 게임 서비스 알람 규칙
+    additionalAlertManagerConfigs:
+      - name: 'game-sre-slack'
+        staticConfigs:
+          - targets:
+            - 'slack-webhook-url'
+        routePrefix: '/api/v1/'
+        timeoutSeconds: 10
+
+alertmanager:
+  alertmanagerSpec:
+    retention: 120h
+    storage:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+
+    # 게임 서비스 알림 설정
+    config:
+      global:
+        slack_api_url: 'https://hooks.slack.com/services/...'
+        resolve_timeout: 5m
+
+      route:
+        group_by: ['alertname', 'service', 'severity']
+        group_wait: 10s
+        group_interval: 10s
+        repeat_interval: 1h
+        receiver: 'game-sre-oncall'
+        routes:
+          - match:
+              severity: critical
+            receiver: 'game-sre-critical'
+            continue: true
+          - match:
+              service: game-server
+            receiver: 'game-sre-game-server'
+          - match:
+              service: matchmaking
+            receiver: 'game-sre-matchmaking'
+
+      receivers:
+        - name: 'game-sre-oncall'
+          slack_configs:
+            - channel: '#game-sre-oncall'
+              title: '{{ template "slack.title" . }}'
+              text: '{{ template "slack.text" . }}'
+              actions:
+                - type: button
+                  text: '대시보드 보기'
+                  url: '{{ template "slack.dashboard_url" . }}'
+                - type: button
+                  text: '런북 보기'
+                  url: '{{ template "slack.runbook_url" . }}'
+
+        - name: 'game-sre-critical'
+          pagerduty_configs:
+            - routing_key: 'game-sre-critical'
+              description: '{{ template "pagerduty.description" . }}'
+              severity: '{{ if eq .GroupLabels.severity "critical" }}critical{{ else }}warning{{ end }}'
+              client: 'Prometheus'
+              client_url: '{{ template "pagerduty.clientURL" . }}'
+
+        - name: 'game-sre-game-server'
+          slack_configs:
+            - channel: '#game-server-alerts'
+              title: '🎮 {{ template "slack.title" . }}'
+              text: '{{ template "slack.text" . }}'
+
+        - name: 'game-sre-matchmaking'
+          slack_configs:
+            - channel: '#matchmaking-alerts'
+              title: '🎯 {{ template "slack.title" . }}'
+              text: '{{ template "slack.text" . }}'
+
+grafana:
+  adminPassword: "game-sre-admin-2024!"
+
+  # 게임 서비스 대시보드 설정
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: 'game-service'
+          orgId: 1
+          folder: 'Game Service'
+          type: file
+          disableDelete: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/game-service
+
+  # 게임 서비스 대시보드 자동 로드
+  dashboards:
+    game-service:
+      game-service-overview:
+        json: |
+          {
+            "dashboard": {
+              "title": "Game Service Overview",
+              "tags": ["game-service", "overview"],
+              "timezone": "Asia/Seoul"
+            }
+          }
+      game-server-slo:
+        json: |
+          {
+            "dashboard": {
+              "title": "Game Server SLO Dashboard",
+              "tags": ["game-service", "slo", "game-server"],
+              "timezone": "Asia/Seoul"
+            }
+          }
+      matchmaking-slo:
+        json: |
+          {
+            "dashboard": {
+              "title": "Matchmaking SLO Dashboard",
+              "tags": ["game-service", "slo", "matchmaking"],
+              "timezone": "Asia/Seoul"
+            }
+          }
+
+  # 게임 서비스 특화 설정
+  grafana.ini:
+    server:
+      root_url: "https://grafana.game-sre.com"
+    users:
+      allow_sign_up: false
+    auth:
+      disable_login_form: false
+    security:
+      allow_embedding: true
+    feature_toggles:
+      enable: "publicDashboards,publicDashboardsEnabled"
+
+  # 게임 서비스 데이터 소스
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          url: http://prometheus-operated:9090
+          access: proxy
+          isDefault: true
+          editable: true
+          jsonData:
+            timeInterval: "15s"
+            queryTimeout: "60s"
+            httpMethod: "POST"
+
+        - name: Loki
+          type: loki
+          url: http://loki:3100
+          access: proxy
+          editable: true
+          jsonData:
+            maxLines: 1000
+
+        - name: Tempo
+          type: tempo
+          url: http://tempo:3200
+          access: proxy
+          editable: true
+          jsonData:
+            httpMethod: "GET"
+            serviceMap:
+              datasourceUid: "prometheus"
+
+# 게임 서비스 특화 추가 컴포넌트
+additionalComponents:
+  # 게임 클라이언트 메트릭 수집기
+  gameClientMetrics:
+    enabled: true
+    image:
+      repository: game-client-metrics
+      tag: "latest"
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 100m
+      limits:
+        memory: 512Mi
+        cpu: 200m
+
+  # 게임 로드 밸런서 메트릭
+  gameLoadBalancer:
+    enabled: true
+    image:
+      repository: nginx/nginx-prometheus-exporter
+      tag: "latest"
+    resources:
+      requests:
+        memory: 128Mi
+        cpu: 50m
+      limits:
+        memory: 256Mi
+        cpu: 100m
+
+# 게임 서비스 모니터링 설정
+gameServiceMonitoring:
+  # 게임 피크 시간대 설정
+  peakHours:
+    - start: "18:00"
+      end: "22:00"
+      timezone: "Asia/Seoul"
+      description: "저녁 피크 시간대"
+      scaling:
+        enabled: true
+        minReplicas: 5
+        maxReplicas: 20
+
+  # 게임 이벤트 기간 설정
+  eventPeriods:
+    - name: "holiday_events"
+      description: "공휴일/이벤트 기간"
+      scaling:
+        enabled: true
+        minReplicas: 8
+        maxReplicas: 25
+      slo:
+        multiplier: 1.1
+
+  # 게임 서비스 헬스체크
+  healthChecks:
+    gameServer:
+      path: "/health"
+      port: 8080
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+      successThreshold: 1
+
+    matchmaking:
+      path: "/health"
+      port: 8080
+      initialDelaySeconds: 20
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+      successThreshold: 1
+
+    gamePersistence:
+      path: "/health"
+      port: 8080
+      initialDelaySeconds: 15
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+      successThreshold: 1
+
+# 게임 서비스 로깅 설정
+logging:
+  # 게임 이벤트 로그 수집
+  gameEvents:
+    enabled: true
+    retention: 90d
+    sampling:
+      rate: 0.1  # 10% 샘플링
+      burst: 1000
+
+  # 게임 플레이 로그
+  gamePlay:
+    enabled: true
+    retention: 30d
+    sampling:
+      rate: 0.01  # 1% 샘플링
+      burst: 100
+
+  # 게임 매칭 로그
+  matchmaking:
+    enabled: true
+    retention: 60d
+    sampling:
+      rate: 0.05  # 5% 샘플링
+      burst: 500
+
+# 게임 서비스 트레이싱 설정
+tracing:
+  # OpenTelemetry 설정
+  openTelemetry:
+    enabled: true
+    sampling:
+      rate: 0.01  # 1% 샘플링
+      burst: 1000
+
+    # 게임 액션별 트레이싱
+    gameActions:
+      - name: "player_move"
+        sampling_rate: 0.1
+      - name: "game_match"
+        sampling_rate: 0.05
+      - name: "data_save"
+        sampling_rate: 0.02
+      - name: "error_occurred"
+        sampling_rate: 1.0  # 오류는 100% 트레이싱
