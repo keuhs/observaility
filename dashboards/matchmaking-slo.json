@@ -1,0 +1,415 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "Matchmaking SLO Dashboard",
+    "tags": ["game-service", "slo", "matchmaking", "sre"],
+    "style": "dark",
+    "timezone": "Asia/Seoul",
+    "refresh": "30s",
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    },
+    "timepicker": {
+      "refresh_intervals": ["5s", "10s", "30s", "1m", "5m", "15m", "30m", "1h", "2h", "1d"]
+    },
+    "templating": {
+      "list": [
+        {
+          "name": "match_type",
+          "type": "query",
+          "query": "label_values(game_matching_requests_total{service=\"matchmaking\"}, match_type)",
+          "refresh": 2,
+          "includeAll": true,
+          "multi": true,
+          "label": "Match Type"
+        },
+        {
+          "name": "player_skill",
+          "type": "query",
+          "query": "label_values(game_matching_requests_total{service=\"matchmaking\"}, player_skill)",
+          "refresh": 2,
+          "includeAll": true,
+          "multi": true,
+          "label": "Player Skill Level"
+        }
+      ]
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "🎯 Matchmaking Success Rate SLO",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(rate(game_matching_requests_total{service=\"matchmaking\", status=\"success\"}[5m])) / sum(rate(game_matching_requests_total{service=\"matchmaking\"}[5m])) * 100",
+            "legendFormat": "Current Success Rate"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "yellow", "value": 90},
+                {"color": "green", "value": 95}
+              ]
+            },
+            "unit": "percent",
+            "decimals": 2,
+            "mappings": []
+          }
+        },
+        "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "🔥 Error Budget Burn Rate",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "slo:error_budget_burn_rate:game_matching_success_rate",
+            "legendFormat": "Burn Rate"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": 0},
+                {"color": "yellow", "value": 1},
+                {"color": "red", "value": 14.4}
+              ]
+            },
+            "unit": "short",
+            "decimals": 2,
+            "mappings": []
+          }
+        },
+        "gridPos": {"h": 8, "w": 6, "x": 6, "y": 0}
+      },
+      {
+        "id": 3,
+        "title": "⏱️ Average Match Time",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.5, sum(rate(game_match_duration_seconds_bucket{service=\"matchmaking\"}[5m])) by (le))",
+            "legendFormat": "Median Match Time"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": 0},
+                {"color": "yellow", "value": 30},
+                {"color": "red", "value": 60}
+              ]
+            },
+            "unit": "s",
+            "decimals": 1,
+            "mappings": []
+          }
+        },
+        "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0}
+      },
+      {
+        "id": 4,
+        "title": "👥 Active Matchmaking Queue",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "game_matchmaking_queue_size{service=\"matchmaking\"}",
+            "legendFormat": "Queue Size"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": 0},
+                {"color": "yellow", "value": 100},
+                {"color": "red", "value": 500}
+              ]
+            },
+            "unit": "short",
+            "decimals": 0,
+            "mappings": []
+          }
+        },
+        "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0}
+      },
+      {
+        "id": 5,
+        "title": "📈 Success Rate Trend (Last 24h)",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "sum(rate(game_matching_requests_total{service=\"matchmaking\", status=\"success\"}[5m])) / sum(rate(game_matching_requests_total{service=\"matchmaking\"}[5m])) * 100",
+            "legendFormat": "Success Rate %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "axisLabel": "Success Rate %",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "pointSize": 5,
+              "scaleDistribution": {"type": "linear"},
+              "showPoints": "never",
+              "spanNulls": false,
+              "stacking": {"group": "A", "mode": "none"},
+              "thresholdsStyle": {"mode": "off"}
+            },
+            "unit": "percent",
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "yellow", "value": 90},
+                {"color": "green", "value": 95}
+              ]
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+      },
+      {
+        "id": 6,
+        "title": "🔥 Error Budget Burn Rate Trend",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "slo:error_budget_burn_rate:game_matching_success_rate",
+            "legendFormat": "Burn Rate"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "axisLabel": "Burn Rate",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "pointSize": 5,
+              "scaleDistribution": {"type": "linear"},
+              "showPoints": "never",
+              "spanNulls": false,
+              "stacking": {"group": "A", "mode": "none"},
+              "thresholdsStyle": {"mode": "off"}
+            },
+            "unit": "short",
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": 0},
+                {"color": "yellow", "value": 1},
+                {"color": "red", "value": 14.4}
+              ]
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+      },
+      {
+        "id": 7,
+        "title": "🎮 Matchmaking Requests by Type",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "sum(rate(game_matching_requests_total{service=\"matchmaking\", match_type=~\"$match_type\"}[5m])) by (match_type)",
+            "legendFormat": "{{match_type}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "axisLabel": "Requests per Second",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+              "lineInterpolation": "linear",
+              "lineWidth": 1,
+              "pointSize": 5,
+              "scaleDistribution": {"type": "linear"},
+              "showPoints": "never",
+              "spanNulls": false,
+              "stacking": {"group": "A", "mode": "none"},
+              "thresholdsStyle": {"mode": "off"}
+            },
+            "unit": "reqps"
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}
+      },
+      {
+        "id": 8,
+        "title": "⚡ Match Duration Distribution",
+        "type": "heatmap",
+        "targets": [
+          {
+            "expr": "sum(rate(game_match_duration_seconds_bucket{service=\"matchmaking\"}[5m])) by (le)",
+            "legendFormat": "{{le}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "hideFrom": {"legend": false, "tooltip": false, "vis": false}
+            },
+            "unit": "s"
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16}
+      },
+      {
+        "id": 9,
+        "title": "🏆 Success Rate by Player Skill",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "sum(rate(game_matching_requests_total{service=\"matchmaking\", status=\"success\", player_skill=~\"$player_skill\"}[5m])) by (player_skill) / sum(rate(game_matching_requests_total{service=\"matchmaking\", player_skill=~\"$player_skill\"}[5m])) by (player_skill) * 100",
+            "legendFormat": "{{player_skill}} Success %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "axisLabel": "Success Rate %",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+              "lineInterpolation": "linear",
+              "lineWidth": 1,
+              "pointSize": 5,
+              "scaleDistribution": {"type": "linear"},
+              "showPoints": "never",
+              "spanNulls": false,
+              "stacking": {"group": "A", "mode": "none"},
+              "thresholdsStyle": {"mode": "off"}
+            },
+            "unit": "percent",
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "yellow", "value": 90},
+                {"color": "green", "value": 95}
+              ]
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24}
+      },
+      {
+        "id": 10,
+        "title": "📊 Queue Size by Match Type",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "game_matchmaking_queue_size{service=\"matchmaking\", match_type=~\"$match_type\"}",
+            "legendFormat": "{{match_type}} Queue"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "axisLabel": "Queue Size",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+              "lineInterpolation": "linear",
+              "lineWidth": 1,
+              "pointSize": 5,
+              "scaleDistribution": {"type": "linear"},
+              "showPoints": "never",
+              "spanNulls": false,
+              "stacking": {"group": "A", "mode": "none"},
+              "thresholdsStyle": {"mode": "off"}
+            },
+            "unit": "short"
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24}
+      },
+      {
+        "id": 11,
+        "title": "🚨 Matchmaking Alerts Status",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "ALERTS{alertname=~\"GameMatching.*\", alertstate=\"firing\"}",
+            "format": "table",
+            "instant": true
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "displayMode": "auto"
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {"id": "byName", "options": "severity"},
+              "properties": [
+                {
+                  "id": "custom.align",
+                  "value": "center"
+                },
+                {
+                  "id": "thresholds",
+                  "value": {
+                    "steps": [
+                      {"color": "green", "value": 0},
+                      {"color": "yellow", "value": 1},
+                      {"color": "red", "value": 2}
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 32}
+      }
+    ]
+  }
+}

@@ -1,0 +1,32 @@
+apiVersion: v2
+name: game-service-monitoring
+description: 모바일 게임 서비스 모니터링 스택
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - monitoring
+  - prometheus
+  - grafana
+  - alertmanager
+  - game-service
+  - sre
+home: https://github.com/observaility
+sources:
+  - https://github.com/observaility
+maintainers:
+  - name: Game SRE Team
+    email: game-sre@company.com
+dependencies:
+  - name: kube-prometheus-stack
+    version: "55.0.0"
+    repository: "https://prometheus-community.github.io/helm-charts"
+    condition: prometheus.enabled
+  - name: loki
+    version: "5.41.0"
+    repository: "https://grafana.github.io/helm-charts"
+    condition: loki.enabled
+  - name: tempo
+    version: "1.8.0"
+    repository: "https://grafana.github.io/helm-charts"
+    condition: tempo.enabled

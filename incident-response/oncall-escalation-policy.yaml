@@ -1,0 +1,514 @@
+# 게임 서비스 온콜 로테이션 및 에스컬레이션 정책
+# SRE 팀의 24/7 운영 및 인시던트 대응 체계
+
+apiVersion: sre.observaility.com/v1
+kind: OncallEscalationPolicy
+metadata:
+  name: game-service-oncall-policy
+  namespace: game-sre
+  labels:
+    service: game-service
+    team: game-sre
+    environment: production
+spec:
+  description: "모바일 게임 서비스 24/7 온콜 및 에스컬레이션 정책"
+
+  # 온콜 로테이션 정책
+  oncallRotation:
+    # 주간 온콜 로테이션
+    weekly:
+      duration: "1주"
+      handover: "월요일 오전 9시 KST"
+      timezone: "Asia/Seoul"
+
+      # 1차 온콜 (주요 담당자)
+      primary:
+        team: "game-sre-primary"
+        members:
+          - name: "김철수"
+            email: "kim.cs@company.com"
+            phone: "+82-10-1234-5678"
+            slack: "@kim-cs"
+            skills: ["game-server", "kubernetes", "prometheus"]
+            availability: "24/7"
+
+          - name: "이영희"
+            email: "lee.yh@company.com"
+            phone: "+82-10-2345-6789"
+            slack: "@lee-yh"
+            skills: ["matchmaking", "database", "monitoring"]
+            availability: "24/7"
+
+          - name: "박민수"
+            email: "park.ms@company.com"
+            phone: "+82-10-3456-7890"
+            slack: "@park-ms"
+            skills: ["infrastructure", "networking", "security"]
+            availability: "24/7"
+
+        backup: 2
+        handover_notes: |
+          ## 온콜 인수인계 체크리스트
+
+          ### 시스템 상태
+          - [ ] 게임 서비스 대시보드 확인
+          - [ ] 활성 알람 현황 확인
+          - [ ] 최근 인시던트 현황 확인
+          - [ ] 예정된 배포/변경사항 확인
+
+          ### 도구 및 접근 권한
+          - [ ] Kubernetes 클러스터 접근 권한 확인
+          - [ ] Grafana 대시보드 접근 권한 확인
+          - [ ] Slack 채널 멤버십 확인
+          - [ ] PagerDuty 설정 확인
+
+          ### 진행 중인 작업
+          - [ ] 진행 중인 인시던트 확인
+          - [ ] 미완료 액션 아이템 확인
+          - [ ] 예정된 유지보수 작업 확인
+
+          ### 특이사항
+          - [ ] 특별 주의사항 확인
+          - [ ] 최근 변경사항 확인
+          - [ ] 팀원 연락처 최신화 확인
+
+      # 2차 온콜 (백업 담당자)
+      secondary:
+        team: "game-sre-secondary"
+        members:
+          - name: "정수진"
+            email: "jung.sj@company.com"
+            phone: "+82-10-4567-8901"
+            slack: "@jung-sj"
+            skills: ["game-server", "monitoring", "automation"]
+            availability: "24/7"
+
+          - name: "최동현"
+            email: "choi.dh@company.com"
+            phone: "+82-10-5678-9012"
+            slack: "@choi-dh"
+            skills: ["matchmaking", "performance", "scaling"]
+            availability: "24/7"
+
+        backup: 1
+        handover_notes: |
+          ## 2차 온콜 인수인계 체크리스트
+
+          ### 1차 온콜 상태
+          - [ ] 1차 온콜 담당자 상태 확인
+          - [ ] 1차 온콜 연락 가능 여부 확인
+          - [ ] 1차 온콜 부재 시 대응 계획 확인
+
+          ### 시스템 지식
+          - [ ] 주요 시스템 아키텍처 이해도 확인
+          - [ ] 일반적인 문제 해결 방법 숙지 확인
+          - [ ] 에스컬레이션 절차 숙지 확인
+
+      # 3차 온콜 (팀 리드)
+      tertiary:
+        team: "game-sre-leads"
+        members:
+          - name: "강팀장"
+            email: "kang.team@company.com"
+            phone: "+82-10-6789-0123"
+            slack: "@kang-team-lead"
+            role: "SRE 팀 리드"
+            availability: "24/7"
+
+          - name: "윤매니저"
+            email: "yoon.manager@company.com"
+            phone: "+82-10-7890-1234"
+            slack: "@yoon-manager"
+            role: "인프라 매니저"
+            availability: "24/7"
+
+        backup: 1
+        handover_notes: |
+          ## 3차 온콜 인수인계 체크리스트
+
+          ### 팀 관리
+          - [ ] 팀원 상태 및 가용성 확인
+          - [ ] 진행 중인 프로젝트 현황 확인
+          - [ ] 예산 및 리소스 현황 확인
+
+          ### 경영진 커뮤니케이션
+          - [ ] 경영진 연락처 최신화 확인
+          - [ ] 주요 의사결정 권한 확인
+          - [ ] 비즈니스 영향 평가 방법 숙지 확인
+
+      # 4차 온콜 (경영진)
+      executive:
+        team: "game-sre-executive"
+        members:
+          - name: "김CTO"
+            email: "kim.cto@company.com"
+            phone: "+82-10-8901-2345"
+            slack: "@kim-cto"
+            role: "CTO"
+            availability: "24/7"
+
+          - name: "이기술이사"
+            email: "lee.tech@company.com"
+            phone: "+82-10-9012-3456"
+            slack: "@lee-tech-director"
+            role: "기술 이사"
+            availability: "24/7"
+
+        backup: 1
+        handover_notes: |
+          ## 4차 온콜 인수인계 체크리스트
+
+          ### 비즈니스 영향
+          - [ ] 비즈니스 임팩트 평가 방법 숙지 확인
+          - [ ] 고객 커뮤니케이션 정책 숙지 확인
+          - [ ] 법적/규제 요구사항 숙지 확인
+
+          ### 외부 커뮤니케이션
+          - [ ] 매체 대응 정책 숙지 확인
+          - [ ] 고객 지원팀 협업 방법 숙지 확인
+          - [ ] 파트너사 커뮤니케이션 정책 숙지 확인
+
+  # 에스컬레이션 정책
+  escalationPolicy:
+    # 자동 에스컬레이션 (시간 기반)
+    automatic:
+      - level: "1차 에스컬레이션"
+        condition: "Sev0 인시던트 발생"
+        action: "즉시 3차 온콜(팀 리드)에게 알림"
+        timeout: "0분"
+        channels:
+          - "slack"
+          - "phone"
+          - "pagerduty"
+
+      - level: "2차 에스컬레이션"
+        condition: "Sev1 인시던트 15분 미해결"
+        action: "2차 온콜에게 알림"
+        timeout: "15분"
+        channels:
+          - "slack"
+          - "phone"
+
+      - level: "3차 에스컬레이션"
+        condition: "Sev1 인시던트 30분 미해결"
+        action: "3차 온콜(팀 리드)에게 알림"
+        timeout: "30분"
+        channels:
+          - "slack"
+          - "phone"
+          - "pagerduty"
+
+      - level: "4차 에스컬레이션"
+        condition: "Sev0/1 인시던트 1시간 미해결"
+        action: "4차 온콜(경영진)에게 알림"
+        timeout: "60분"
+        channels:
+          - "slack"
+          - "phone"
+          - "pagerduty"
+          - "email"
+
+      - level: "5차 에스컬레이션"
+        condition: "Sev0/1 인시던트 2시간 미해결"
+        action: "모든 경영진에게 알림"
+        timeout: "120분"
+        channels:
+          - "slack"
+          - "phone"
+          - "pagerduty"
+          - "email"
+          - "sms"
+
+    # 수동 에스컬레이션 (상황 기반)
+    manual:
+      - level: "기술적 한계"
+        condition: "기술적 한계에 도달하여 외부 지원 필요"
+        action: "클라우드 제공업체, 벤더 지원 요청"
+        channels:
+          - "slack"
+          - "phone"
+          - "email"
+
+      - level: "비즈니스 영향"
+        condition: "비즈니스 영향이 예상보다 클 때"
+        action: "경영진에게 의사결정 요청"
+        channels:
+          - "slack"
+          - "phone"
+          - "pagerduty"
+
+      - level: "보안 사고"
+        condition: "보안 사고 의심 또는 확인"
+        action: "보안팀 및 법무팀에 즉시 보고"
+        channels:
+          - "slack"
+          - "phone"
+          - "pagerduty"
+          - "email"
+
+      - level: "규제 위반"
+        condition: "규제 준수 위반 의심 또는 확인"
+        action: "법무팀 및 규제 담당자에게 즉시 보고"
+        channels:
+          - "slack"
+          - "phone"
+          - "pagerduty"
+          - "email"
+
+  # 에스컬레이션 메시지 템플릿
+  escalationTemplates:
+    # 1차 에스컬레이션
+    level1: |
+      🚨 1차 에스컬레이션 발생 🚨
+
+      **서비스**: {{.Service}}
+      **심각도**: {{.Severity}}
+      **상황**: {{.Description}}
+      **영향**: {{.Impact}}
+      **발생 시간**: {{.OccurredAt}}
+      **경과 시간**: {{.ElapsedTime}}
+
+      **담당자**: @{{.PrimaryOncall}}
+      **에스컬레이션 대상**: @{{.EscalationTarget}}
+
+      즉시 대응이 필요합니다!
+      #1차에스컬레이션 #긴급
+
+    # 2차 에스컬레이션
+    level2: |
+      ⚠️ 2차 에스컬레이션 발생 ⚠️
+
+      **서비스**: {{.Service}}
+      **심각도**: {{.Severity}}
+      **상황**: {{.Description}}
+      **영향**: {{.Impact}}
+      **발생 시간**: {{.OccurredAt}}
+      **경과 시간**: {{.ElapsedTime}}
+
+      **담당자**: @{{.PrimaryOncall}}
+      **에스컬레이션 대상**: @{{.EscalationTarget}}
+
+      추가 지원이 필요합니다.
+      #2차에스컬레이션 #지원요청
+
+    # 3차 에스컬레이션
+    level3: |
+      🔴 3차 에스컬레이션 발생 🔴
+
+      **서비스**: {{.Service}}
+      **심각도**: {{.Severity}}
+      **상황**: {{.Description}}
+      **영향**: {{.Impact}}
+      **발생 시간**: {{.OccurredAt}}
+      **경과 시간**: {{.ElapsedTime}}
+
+      **담당자**: @{{.PrimaryOncall}}
+      **에스컬레이션 대상**: @{{.EscalationTarget}}
+
+      팀 리드 개입이 필요합니다.
+      #3차에스컬레이션 #팀리드개입
+
+    # 4차 에스컬레이션
+    level4: |
+      🚨🚨 4차 에스컬레이션 발생 🚨🚨
+
+      **서비스**: {{.Service}}
+      **심각도**: {{.Severity}}
+      **상황**: {{.Description}}
+      **영향**: {{.Impact}}
+      **발생 시간**: {{.OccurredAt}}
+      **경과 시간**: {{.ElapsedTime}}
+
+      **담당자**: @{{.PrimaryOncall}}
+      **에스컬레이션 대상**: @{{.EscalationTarget}}
+
+      경영진 개입이 필요합니다!
+      #4차에스컬레이션 #경영진개입
+
+  # 온콜 일정 관리
+  scheduleManagement:
+    # 휴가 및 부재 관리
+    absence:
+      - type: "휴가"
+        advance_notice: "2주 전"
+        approval: "팀 리드"
+        coverage: "자동으로 다음 온콜에게 배정"
+
+      - type: "병가"
+        advance_notice: "즉시"
+        approval: "팀 리드"
+        coverage: "즉시 백업 온콜에게 배정"
+
+      - type: "출장"
+        advance_notice: "1주 전"
+        approval: "팀 리드"
+        coverage: "출장 기간 동안 백업 온콜에게 배정"
+
+      - type: "개인 사정"
+        advance_notice: "1주 전"
+        approval: "팀 리드"
+        coverage: "상황에 따라 조정"
+
+    # 교대 근무
+    shift:
+      - type: "주간 온콜"
+        duration: "월요일 09:00 - 다음 월요일 09:00"
+        handover: "월요일 오전 9시"
+
+      - type: "야간 온콜"
+        duration: "18:00 - 09:00 (다음날)"
+        handover: "18:00"
+
+      - type: "주말 온콜"
+        duration: "금요일 18:00 - 월요일 09:00"
+        handover: "금요일 18:00"
+
+    # 특별 상황
+    special:
+      - type: "공휴일"
+        policy: "자동으로 다음 온콜에게 배정"
+        compensation: "추가 휴가 1일"
+
+      - type: "이벤트 기간"
+        policy: "이벤트 기간 동안 온콜 강화"
+        compensation: "이벤트 종료 후 휴가 2일"
+
+      - type: "긴급 상황"
+        policy: "모든 온콜 대기"
+        compensation: "상황 종료 후 휴가 3일"
+
+  # 온콜 성과 관리
+  performanceManagement:
+    # 온콜 품질 지표
+    qualityMetrics:
+      - name: "응답 시간"
+        description: "알림 발생부터 응답까지의 시간"
+        target: "5분 이내"
+        measurement: "평균 응답 시간"
+
+      - name: "해결 시간"
+        description: "인시던트 발생부터 해결까지의 시간"
+        target: "SLO 목표 내"
+        measurement: "MTTR"
+
+      - name: "에스컬레이션 비율"
+        description: "에스컬레이션이 필요한 인시던트 비율"
+        target: "20% 이하"
+        measurement: "에스컬레이션 발생률"
+
+      - name: "사용자 만족도"
+        description: "인시던트 대응에 대한 사용자 만족도"
+        target: "4.0/5.0 이상"
+        measurement: "사용자 설문조사"
+
+    # 온콜 보상 및 인센티브
+    compensation:
+      - type: "기본 온콜 수당"
+        amount: "일 50,000원"
+        condition: "정상 온콜 수행"
+
+      - type: "성과 보너스"
+        amount: "월 100,000원"
+        condition: "품질 지표 목표 달성"
+
+      - type: "긴급 상황 보너스"
+        amount: "건당 200,000원"
+        condition: "Sev0/1 인시던트 성공적 해결"
+
+      - type: "연속 온콜 보너스"
+        amount: "주 50,000원"
+        condition: "연속 2주 온콜 수행"
+
+    # 온콜 교육 및 훈련
+    training:
+      - type: "온콜 입문 교육"
+        frequency: "온콜 시작 전"
+        duration: "4시간"
+        topics:
+          - "온콜 절차 및 정책"
+          - "도구 사용법"
+          - "일반적인 문제 해결"
+          - "에스컬레이션 절차"
+
+      - type: "정기 온콜 훈련"
+        frequency: "분기별"
+        duration: "2시간"
+        topics:
+          - "새로운 도구 및 절차"
+          - "최근 인시던트 사례 연구"
+          - "팀 협업 개선"
+          - "성과 분석 및 피드백"
+
+      - type: "고급 온콜 훈련"
+        frequency: "연 1회"
+        duration: "8시간"
+        topics:
+          - "복잡한 인시던트 대응"
+          - "팀 리더십 및 의사결정"
+          - "비즈니스 임팩트 평가"
+          - "외부 커뮤니케이션"
+
+  # 온콜 도구 및 자동화
+  toolsAndAutomation:
+    # 온콜 관리 도구
+    management:
+      - name: "PagerDuty"
+        purpose: "온콜 스케줄링 및 알림"
+        integration: "Slack, Phone, Email"
+
+      - name: "Slack"
+        purpose: "팀 커뮤니케이션 및 알림"
+        integration: "PagerDuty, Prometheus, Grafana"
+
+      - name: "Grafana"
+        purpose: "시스템 모니터링 및 알림"
+        integration: "Slack, PagerDuty"
+
+    # 자동화 스크립트
+    automation:
+      - name: "온콜 핸드오버 봇"
+        purpose: "자동 온콜 인수인계 알림"
+        trigger: "매주 월요일 오전 9시"
+        actions:
+          - "새 온콜 담당자에게 알림"
+          - "인수인계 체크리스트 제공"
+          - "시스템 상태 요약 제공"
+
+      - name: "에스컬레이션 봇"
+        purpose: "자동 에스컬레이션 실행"
+        trigger: "시간 기반 또는 조건 기반"
+        actions:
+          - "적절한 에스컬레이션 대상에게 알림"
+          - "에스컬레이션 메시지 전송"
+          - "에스컬레이션 로그 기록"
+
+      - name: "온콜 성과 봇"
+        purpose: "온콜 성과 자동 측정 및 보고"
+        trigger: "매주 월요일"
+        actions:
+          - "주간 온콜 성과 요약 생성"
+          - "품질 지표 계산"
+          - "개선점 및 권장사항 제시"
+
+  # 온콜 정책 검토 및 개선
+  policyReview:
+    frequency: "분기별"
+    participants:
+      - "전체 SRE 팀"
+      - "팀 리드"
+      - "HR 담당자"
+      - "경영진 (연 1회)"
+
+    reviewTopics:
+      - "온콜 품질 지표 분석"
+      - "에스컬레이션 패턴 분석"
+      - "팀원 피드백 수집"
+      - "정책 개선안 검토"
+      - "도구 및 자동화 개선"
+
+    improvementProcess:
+      - "피드백 수집 및 분석"
+      - "개선안 도출 및 검토"
+      - "정책 수정 및 승인"
+      - "팀원 교육 및 공지"
+      - "개선 효과 측정"

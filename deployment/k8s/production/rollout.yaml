@@ -1,0 +1,630 @@
+# 게임 서비스 프로덕션 배포를 위한 Argo Rollouts 매니페스트
+# Blue-Green 배포 전략과 SLO 기반 승인을 사용
+
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: game-server-rollout
+  namespace: game-production
+  labels:
+    app: game-server
+    service: game-service
+    environment: production
+    team: game-sre
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: game-server
+      service: game-service
+      environment: production
+
+  template:
+    metadata:
+      labels:
+        app: game-server
+        service: game-service
+        environment: production
+        version: "{{.Values.image.tag}}"
+    spec:
+      containers:
+      - name: game-server
+        image: "{{.Values.image.repository}}:{{.Values.image.tag}}"
+        ports:
+        - containerPort: 8080
+          name: http
+        - containerPort: 9090
+          name: metrics
+        env:
+        - name: ENVIRONMENT
+          value: "production"
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: METRICS_ENABLED
+          value: "true"
+        - name: HEALTH_CHECK_ENABLED
+          value: "true"
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: config
+          mountPath: /app/config
+          readOnly: true
+      volumes:
+      - name: config
+        configMap:
+          name: game-server-config
+
+  strategy:
+    blueGreen:
+      # Blue-Green 배포 설정
+      activeService: game-server-active
+      previewService: game-server-preview
+      autoPromotionEnabled: false
+      autoPromotionSeconds: 300
+      scaleDownDelaySeconds: 120
+      prePromotionAnalysis:
+        templates:
+        - templateName: game-server-health-check
+        - templateName: game-server-slo-check
+        - templateName: game-server-performance-check
+      postPromotionAnalysis:
+        templates:
+        - templateName: game-server-post-deployment-check
+        args:
+        - name: duration
+          value: "10m"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: matchmaking-rollout
+  namespace: game-production
+  labels:
+    app: matchmaking
+    service: game-service
+    environment: production
+    team: game-sre
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: matchmaking
+      service: game-service
+      environment: production
+
+  template:
+    metadata:
+      labels:
+        app: matchmaking
+        service: game-service
+        environment: production
+        version: "{{.Values.image.tag}}"
+    spec:
+      containers:
+      - name: matchmaking
+        image: "{{.Values.image.repository}}:{{.Values.image.tag}}"
+        ports:
+        - containerPort: 8080
+          name: http
+        - containerPort: 9090
+          name: metrics
+        env:
+        - name: ENVIRONMENT
+          value: "production"
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: METRICS_ENABLED
+          value: "true"
+        - name: HEALTH_CHECK_ENABLED
+          value: "true"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+
+  strategy:
+    canary:
+      # Canary 배포 설정
+      steps:
+      - setWeight: 10
+        pause:
+          duration: "2m"
+      - setWeight: 50
+        pause:
+          duration: "5m"
+      - setWeight: 100
+        pause:
+          duration: "10m"
+      analysis:
+        templates:
+        - templateName: matchmaking-success-rate-check
+        - templateName: matchmaking-queue-size-check
+        args:
+        - name: duration
+          value: "5m"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: game-persistence-rollout
+  namespace: game-production
+  labels:
+    app: game-persistence
+    service: game-service
+    environment: production
+    team: game-sre
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: game-persistence
+      service: game-service
+      environment: production
+
+  template:
+    metadata:
+      labels:
+        app: game-persistence
+        service: game-service
+        environment: production
+        version: "{{.Values.image.tag}}"
+    spec:
+      containers:
+      - name: game-persistence
+        image: "{{.Values.image.repository}}:{{.Values.image.tag}}"
+        ports:
+        - containerPort: 8080
+          name: http
+        - containerPort: 9090
+          name: metrics
+        env:
+        - name: ENVIRONMENT
+          value: "production"
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: METRICS_ENABLED
+          value: "true"
+        - name: HEALTH_CHECK_ENABLED
+          value: "true"
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: data
+          mountPath: /app/data
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: game-persistence-data
+
+  strategy:
+    rollingUpdate:
+      maxSurge: "50%"
+      maxUnavailable: "0"
+      minReadySeconds: 60
+      progressDeadlineSeconds: 900
+---
+# 분석 템플릿 정의
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: game-server-health-check
+  namespace: game-production
+spec:
+  args:
+  - name: endpoint
+  - name: timeout
+  - name: retries
+  metrics:
+  - name: health-check
+    interval: 30s
+    count: 10
+    successCondition: result[0] == 200
+    provider:
+      http:
+        url: "{{args.endpoint}}"
+        timeoutSeconds: "{{args.timeout}}"
+        headers:
+        - key: "User-Agent"
+          value: "ArgoRollout/1.0"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: game-server-slo-check
+  namespace: game-production
+spec:
+  args:
+  - name: slo
+  - name: window
+  - name: threshold
+  metrics:
+  - name: slo-check
+    interval: 30s
+    count: 10
+    successCondition: result[0] >= "{{args.threshold}}"
+    provider:
+      prometheus:
+        address: http://prometheus-operated:9090
+        query: |
+          sum(rate(game_requests_total{service="game-server", status_code!~"5..|4.."}[{{args.window}}]))
+          /
+          sum(rate(game_requests_total{service="game-server"}[{{args.window}}]))
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: game-server-performance-check
+  namespace: game-production
+spec:
+  args:
+  - name: duration
+  metrics:
+  - name: response-time-check
+    interval: 30s
+    count: 10
+    successCondition: result[0] <= 500
+    provider:
+      prometheus:
+        address: http://prometheus-operated:9090
+        query: |
+          histogram_quantile(0.95,
+            sum(rate(game_action_duration_seconds_bucket{service="game-server"}[5m])) by (le)
+          ) * 1000
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: game-server-post-deployment-check
+  namespace: game-production
+spec:
+  args:
+  - name: duration
+  metrics:
+  - name: post-deployment-slo-check
+    interval: 30s
+    count: 20
+    successCondition: result[0] >= 0.999
+    provider:
+      prometheus:
+        address: http://prometheus-operated:9090
+        query: |
+          sum(rate(game_requests_total{service="game-server", status_code!~"5..|4.."}[5m]))
+          /
+          sum(rate(game_requests_total{service="game-server"}[5m]))
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: matchmaking-success-rate-check
+  namespace: game-production
+spec:
+  args:
+  - name: duration
+  metrics:
+  - name: success-rate-check
+    interval: 30s
+    count: 10
+    successCondition: result[0] >= 0.95
+    provider:
+      prometheus:
+        address: http://prometheus-operated:9090
+        query: |
+          sum(rate(game_matching_requests_total{service="matchmaking", status="success"}[5m]))
+          /
+          sum(rate(game_matching_requests_total{service="matchmaking"}[5m]))
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: matchmaking-queue-size-check
+  namespace: game-production
+spec:
+  args:
+  - name: duration
+  metrics:
+  - name: queue-size-check
+    interval: 30s
+    count: 10
+    successCondition: result[0] <= 1000
+    provider:
+      prometheus:
+        address: http://prometheus-operated:9090
+        query: |
+          sum(game_matchmaking_queue_size{service="matchmaking"})
+---
+# 서비스 정의
+apiVersion: v1
+kind: Service
+metadata:
+  name: game-server-active
+  namespace: game-production
+  labels:
+    app: game-server
+    service: game-service
+    environment: production
+    team: game-sre
+spec:
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  - port: 9090
+    targetPort: 9090
+    protocol: TCP
+    name: metrics
+  selector:
+    app: game-server
+    service: game-service
+    environment: production
+    version: "{{.Values.image.tag}}"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: game-server-preview
+  namespace: game-production
+  labels:
+    app: game-server
+    service: game-service
+    environment: production
+    team: game-sre
+spec:
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  - port: 9090
+    targetPort: 9090
+    protocol: TCP
+    name: metrics
+  selector:
+    app: game-server
+    service: game-service
+    environment: production
+    version: "{{.Values.image.tag}}"
+---
+# Ingress 정의
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: game-service-ingress
+  namespace: game-production
+  labels:
+    app: game-service
+    environment: production
+    team: game-sre
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+spec:
+  tls:
+  - hosts:
+    - game.company.com
+    - api.game.company.com
+    secretName: game-service-tls
+  rules:
+  - host: game.company.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: game-server-active
+            port:
+              number: 80
+  - host: api.game.company.com
+    http:
+      paths:
+      - path: /matchmaking
+        pathType: Prefix
+        backend:
+          service:
+            name: matchmaking-service
+            port:
+              number: 80
+      - path: /persistence
+        pathType: Prefix
+        backend:
+          service:
+            name: game-persistence-service
+            port:
+              number: 80
+---
+# ConfigMap 정의
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: game-server-config
+  namespace: game-production
+  labels:
+    app: game-server
+    service: game-service
+    environment: production
+    team: game-sre
+data:
+  game.config.yaml: |
+    server:
+      host: "0.0.0.0"
+      port: 8080
+      workers: 4
+      max_connections: 10000
+      timeout: 30s
+
+    database:
+      host: "game-db"
+      port: 5432
+      name: "game_production"
+      pool_size: 20
+      max_overflow: 30
+      timeout: 10s
+
+    redis:
+      host: "game-redis"
+      port: 6379
+      db: 0
+      pool_size: 10
+      timeout: 5s
+
+    monitoring:
+      enabled: true
+      metrics_port: 9090
+      health_check_enabled: true
+      readiness_check_enabled: true
+
+    logging:
+      level: "INFO"
+      format: "json"
+      output: "stdout"
+
+    security:
+      rate_limit_enabled: true
+      rate_limit_requests: 1000
+      rate_limit_window: "1m"
+      cors_enabled: true
+      cors_origins: ["https://game.company.com"]
+---
+# PersistentVolumeClaim 정의
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: game-persistence-data
+  namespace: game-production
+  labels:
+    app: game-persistence
+    service: game-service
+    environment: production
+    team: game-sre
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+  storageClassName: fast-ssd
+---
+# HorizontalPodAutoscaler 정의
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: game-server-hpa
+  namespace: game-production
+  labels:
+    app: game-server
+    service: game-service
+    environment: production
+    team: game-sre
+spec:
+  scaleTargetRef:
+    apiVersion: argoproj.io/v1alpha1
+    kind: Rollout
+    name: game-server-rollout
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  - type: Object
+    object:
+      metric:
+        name: requests-per-second
+      describedObject:
+        apiVersion: networking.k8s.io/v1
+        kind: Ingress
+        name: game-service-ingress
+      target:
+        type: AverageValue
+        averageValue: 1000
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 15

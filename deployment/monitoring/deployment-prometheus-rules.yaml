@@ -1,0 +1,367 @@
+# 배포 파이프라인 모니터링을 위한 Prometheus 규칙
+# 배포 성공률, 롤백 빈도, SLO 위반 등을 모니터링
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: deployment-prometheus-rules
+  namespace: monitoring
+  labels:
+    app: prometheus
+    component: rules
+    team: game-sre
+data:
+  deployment-rules.yaml: |
+    groups:
+    - name: deployment-pipeline-monitoring
+      rules:
+      # 배포 성공률 메트릭
+      - record: deployment:success_rate:total
+        expr: |
+          sum(rate(deployment_success_total[5m])) by (service, environment)
+          /
+          sum(rate(deployment_total[5m])) by (service, environment)
+
+      - record: deployment:success_rate:by_environment
+        expr: |
+          sum(rate(deployment_success_total[5m])) by (environment)
+          /
+          sum(rate(deployment_total[5m])) by (environment)
+
+      # 배포 소요 시간 메트릭
+      - record: deployment:duration:average
+        expr: |
+          sum(rate(deployment_duration_seconds_sum[5m])) by (service, environment)
+          /
+          sum(rate(deployment_duration_seconds_count[5m])) by (service, environment)
+
+      - record: deployment:duration:p95
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(deployment_duration_seconds_bucket[5m])) by (le, service, environment)
+          )
+
+      - record: deployment:duration:p99
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(deployment_duration_seconds_bucket[5m])) by (le, service, environment)
+          )
+
+      # 롤백 빈도 메트릭
+      - record: deployment:rollback_rate:total
+        expr: |
+          sum(rate(rollback_total[5m])) by (service, environment)
+          /
+          sum(rate(deployment_total[5m])) by (service, environment)
+
+      - record: deployment:rollback_rate:by_reason
+        expr: |
+          sum(rate(rollback_total[5m])) by (service, environment, reason)
+          /
+          sum(rate(deployment_total[5m])) by (service, environment)
+
+      # SLO 위반 기반 롤백 메트릭
+      - record: deployment:rollback:slo_violation_rate
+        expr: |
+          sum(rate(rollback_total{reason="slo_violation"}[5m])) by (service, environment)
+          /
+          sum(rate(deployment_total[5m])) by (service, environment)
+
+      - record: deployment:rollback:error_rate_spike_rate
+        expr: |
+          sum(rate(rollback_total{reason="error_rate_spike"}[5m])) by (service, environment)
+          /
+          sum(rate(deployment_total[5m])) by (service, environment)
+
+      - record: deployment:rollback:response_time_degradation_rate
+        expr: |
+          sum(rate(rollback_total{reason="response_time_degradation"}[5m])) by (service, environment)
+          /
+          sum(rate(deployment_total[5m])) by (service, environment)
+
+      # 배포 단계별 성공률
+      - record: deployment:stage:code_review_success_rate
+        expr: |
+          sum(rate(deployment_stage_success_total{stage="code_review"}[5m])) by (service, environment)
+          /
+          sum(rate(deployment_stage_total{stage="code_review"}[5m])) by (service, environment)
+
+      - record: deployment:stage:security_scan_success_rate
+        expr: |
+          sum(rate(deployment_stage_success_total{stage="security_scan"}[5m])) by (service, environment)
+          /
+          sum(rate(deployment_stage_total{stage="security_scan"}[5m])) by (service, environment)
+
+      - record: deployment:stage:unit_tests_success_rate
+        expr: |
+          sum(rate(deployment_stage_success_total{stage="unit_tests"}[5m])) by (service, environment)
+          /
+          sum(rate(deployment_stage_total{stage="unit_tests"}[5m])) by (service, environment)
+
+      - record: deployment:stage:integration_tests_success_rate
+        expr: |
+          sum(rate(deployment_stage_success_total{stage="integration_tests"}[5m])) by (service, environment)
+          /
+          sum(rate(deployment_stage_total{stage="integration_tests"}[5m])) by (service, environment)
+
+      - record: deployment:stage:performance_tests_success_rate
+        expr: |
+          sum(rate(deployment_stage_success_total{stage="performance_tests"}[5m])) by (service, environment)
+          /
+          sum(rate(deployment_stage_total{stage="performance_tests"}[5m])) by (service, environment)
+
+      # 배포 후 검증 메트릭
+      - record: deployment:verification:slo_verification_success_rate
+        expr: |
+          sum(rate(deployment_verification_success_total{verification="slo_verification"}[5m])) by (service, environment)
+          /
+          sum(rate(deployment_verification_total{verification="slo_verification"}[5m])) by (service, environment)
+
+      - record: deployment:verification:user_experience_test_success_rate
+        expr: |
+          sum(rate(deployment_verification_success_total{verification="user_experience_test"}[5m])) by (service, environment)
+          /
+          sum(rate(deployment_verification_total{verification="user_experience_test"}[5m])) by (service, environment)
+
+      - record: deployment:verification:load_test_success_rate
+        expr: |
+          sum(rate(deployment_verification_success_total{verification="load_test"}[5m])) by (service, environment)
+          /
+          sum(rate(deployment_verification_total{verification="load_test"}[5m])) by (service, environment)
+
+      # 배포 전략별 성공률
+      - record: deployment:strategy:blue_green_success_rate
+        expr: |
+          sum(rate(deployment_success_total{strategy="blue_green"}[5m])) by (service, environment)
+          /
+          sum(rate(deployment_total{strategy="blue_green"}[5m])) by (service, environment)
+
+      - record: deployment:strategy:canary_success_rate
+        expr: |
+          sum(rate(deployment_success_total{strategy="canary"}[5m])) by (service, environment)
+          /
+          sum(rate(deployment_total{strategy="canary"}[5m])) by (service, environment)
+
+      - record: deployment:strategy:rolling_update_success_rate
+        expr: |
+          sum(rate(deployment_success_total{strategy="rolling_update"}[5m])) by (service, environment)
+          /
+          sum(rate(deployment_total{strategy="rolling_update"}[5m])) by (service, environment)
+
+      # 환경별 배포 성공률
+      - record: deployment:environment:development_success_rate
+        expr: |
+          sum(rate(deployment_success_total{environment="development"}[5m])) by (service)
+          /
+          sum(rate(deployment_total{environment="development"}[5m])) by (service)
+
+      - record: deployment:environment:staging_success_rate
+        expr: |
+          sum(rate(deployment_success_total{environment="staging"}[5m])) by (service)
+          /
+          sum(rate(deployment_total{environment="staging"}[5m])) by (service)
+
+      - record: deployment:environment:production_success_rate
+        expr: |
+          sum(rate(deployment_success_total{environment="production"}[5m])) by (service)
+          /
+          sum(rate(deployment_total{environment="production"}[5m])) by (service)
+
+      # 승인 단계별 성공률
+      - record: deployment:approval:technical_review_success_rate
+        expr: |
+          sum(rate(deployment_approval_success_total{stage="technical_review"}[5m])) by (service, environment)
+          /
+          sum(rate(deployment_approval_total{stage="technical_review"}[5m])) by (service, environment)
+
+      - record: deployment:approval:security_review_success_rate
+        expr: |
+          sum(rate(deployment_approval_success_total{stage="security_review"}[5m])) by (service, environment)
+          /
+          sum(rate(deployment_approval_total{stage="security_review"}[5m])) by (service, environment)
+
+      - record: deployment:approval:business_review_success_rate
+        expr: |
+          sum(rate(deployment_approval_success_total{stage="business_review"}[5m])) by (service, environment)
+          /
+          sum(rate(deployment_approval_total{stage="business_review"}[5m])) by (service, environment)
+
+      # 배포 품질 지표
+      - record: deployment:quality:mean_time_to_deploy
+        expr: |
+          sum(rate(deployment_duration_seconds_sum[5m])) by (service, environment)
+          /
+          sum(rate(deployment_duration_seconds_count[5m])) by (service, environment)
+
+      - record: deployment:quality:deployment_frequency
+        expr: |
+          sum(rate(deployment_total[5m])) by (service, environment)
+
+      - record: deployment:quality:change_failure_rate
+        expr: |
+          sum(rate(rollback_total[5m])) by (service, environment)
+          /
+          sum(rate(deployment_total[5m])) by (service, environment)
+
+      - record: deployment:quality:mean_time_to_restore
+        expr: |
+          sum(rate(rollback_duration_seconds_sum[5m])) by (service, environment)
+          /
+          sum(rate(rollback_duration_seconds_count[5m])) by (service, environment)
+
+    - name: deployment-alerts
+      rules:
+      # 배포 실패 알림
+      - alert: DeploymentFailure
+        expr: |
+          sum(rate(deployment_failure_total[5m])) by (service, environment) > 0
+        for: 2m
+        labels:
+          severity: critical
+          service: "{{ $labels.service }}"
+          environment: "{{ $labels.environment }}"
+          team: game-sre
+        annotations:
+          summary: "배포 실패 발생"
+          description: "{{ $labels.service }} 서비스가 {{ $labels.environment }} 환경에서 배포에 실패했습니다."
+          runbook_url: "https://runbooks.game-sre.com/deployment-failure"
+          dashboard_url: "https://grafana.game-sre.com/d/deployment-pipeline"
+
+      # 배포 성공률 저하 알림
+      - alert: DeploymentSuccessRateLow
+        expr: |
+          sum(rate(deployment_success_total[5m])) by (service, environment)
+          /
+          sum(rate(deployment_total[5m])) by (service, environment) < 0.95
+        for: 5m
+        labels:
+          severity: warning
+          service: "{{ $labels.service }}"
+          environment: "{{ $labels.environment }}"
+          team: game-sre
+        annotations:
+          summary: "배포 성공률 저하"
+          description: "{{ $labels.service }} 서비스의 {{ $labels.environment }} 환경 배포 성공률이 95% 미만입니다."
+          runbook_url: "https://runbooks.game-sre.com/deployment-success-rate-low"
+          dashboard_url: "https://grafana.game-sre.com/d/deployment-pipeline"
+
+      # 롤백 빈도 증가 알림
+      - alert: RollbackFrequencyHigh
+        expr: |
+          sum(rate(rollback_total[5m])) by (service, environment)
+          /
+          sum(rate(deployment_total[5m])) by (service, environment) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          service: "{{ $labels.service }}"
+          environment: "{{ $labels.environment }}"
+          team: game-sre
+        annotations:
+          summary: "롤백 빈도 증가"
+          description: "{{ $labels.service }} 서비스의 {{ $labels.environment }} 환경에서 롤백 비율이 10%를 초과했습니다."
+          runbook_url: "https://runbooks.game-sre.com/rollback-frequency-high"
+          dashboard_url: "https://grafana.game-sre.com/d/deployment-pipeline"
+
+      # 배포 시간 지연 알림
+      - alert: DeploymentDurationHigh
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(deployment_duration_seconds_bucket[5m])) by (le, service, environment)
+          ) > 1800
+        for: 5m
+        labels:
+          severity: warning
+          service: "{{ $labels.service }}"
+          environment: "{{ $labels.environment }}"
+          team: game-sre
+        annotations:
+          summary: "배포 시간 지연"
+          description: "{{ $labels.service }} 서비스의 {{ $labels.environment }} 환경 배포 시간이 30분을 초과했습니다."
+          runbook_url: "https://runbooks.game-sre.com/deployment-duration-high"
+          dashboard_url: "https://grafana.game-sre.com/d/deployment-pipeline"
+
+      # SLO 위반 기반 롤백 알림
+      - alert: SLOViolationRollback
+        expr: |
+          sum(rate(rollback_total{reason="slo_violation"}[5m])) by (service, environment) > 0
+        for: 1m
+        labels:
+          severity: critical
+          service: "{{ $labels.service }}"
+          environment: "{{ $labels.environment }}"
+          team: game-sre
+        annotations:
+          summary: "SLO 위반으로 인한 롤백"
+          description: "{{ $labels.service }} 서비스가 {{ $labels.environment }} 환경에서 SLO 위반으로 롤백되었습니다."
+          runbook_url: "https://runbooks.game-sre.com/slo-violation-rollback"
+          dashboard_url: "https://grafana.game-sre.com/d/deployment-pipeline"
+
+      # 보안 스캔 실패 알림
+      - alert: SecurityScanFailure
+        expr: |
+          sum(rate(deployment_stage_failure_total{stage="security_scan"}[5m])) by (service, environment) > 0
+        for: 2m
+        labels:
+          severity: critical
+          service: "{{ $labels.service }}"
+          environment: "{{ $labels.environment }}"
+          team: game-sre
+        annotations:
+          summary: "보안 스캔 실패"
+          description: "{{ $labels.service }} 서비스의 {{ $labels.environment }} 환경 보안 스캔이 실패했습니다."
+          runbook_url: "https://runbooks.game-sre.com/security-scan-failure"
+          dashboard_url: "https://grafana.game-sre.com/d/deployment-pipeline"
+
+      # 테스트 실패 알림
+      - alert: TestFailure
+        expr: |
+          sum(rate(deployment_stage_failure_total{stage=~"unit_tests|integration_tests|performance_tests"}[5m])) by (service, environment, stage) > 0
+        for: 2m
+        labels:
+          severity: warning
+          service: "{{ $labels.service }}"
+          environment: "{{ $labels.environment }}"
+          stage: "{{ $labels.stage }}"
+          team: game-sre
+        annotations:
+          summary: "테스트 실패"
+          description: "{{ $labels.service }} 서비스의 {{ $labels.environment }} 환경 {{ $labels.stage }} 테스트가 실패했습니다."
+          runbook_url: "https://runbooks.game-sre.com/test-failure"
+          dashboard_url: "https://grafana.game-sre.com/d/deployment-pipeline"
+
+      # 승인 지연 알림
+      - alert: ApprovalDelay
+        expr: |
+          sum(rate(deployment_approval_delay_seconds_sum[5m])) by (service, environment, stage)
+          /
+          sum(rate(deployment_approval_total[5m])) by (service, environment, stage) > 3600
+        for: 5m
+        labels:
+          severity: warning
+          service: "{{ $labels.service }}"
+          environment: "{{ $labels.environment }}"
+          stage: "{{ $labels.stage }}"
+          team: game-sre
+        annotations:
+          summary: "승인 지연"
+          description: "{{ $labels.service }} 서비스의 {{ $labels.environment }} 환경 {{ $labels.stage }} 승인이 1시간 이상 지연되고 있습니다."
+          runbook_url: "https://runbooks.game-sre.com/approval-delay"
+          dashboard_url: "https://grafana.game-sre.com/d/deployment-pipeline"
+
+      # 배포 후 검증 실패 알림
+      - alert: PostDeploymentVerificationFailure
+        expr: |
+          sum(rate(deployment_verification_failure_total[5m])) by (service, environment, verification) > 0
+        for: 2m
+        labels:
+          severity: critical
+          service: "{{ $labels.service }}"
+          environment: "{{ $labels.environment }}"
+          verification: "{{ $labels.verification }}"
+          team: game-sre
+        annotations:
+          summary: "배포 후 검증 실패"
+          description: "{{ $labels.service }} 서비스의 {{ $labels.environment }} 환경 {{ $labels.verification }} 검증이 실패했습니다."
+          runbook_url: "https://runbooks.game-sre.com/post-deployment-verification-failure"
+          dashboard_url: "https://grafana.game-sre.com/d/deployment-pipeline"

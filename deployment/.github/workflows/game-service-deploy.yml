@@ -1,0 +1,507 @@
+name: Game Service Deployment Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - feature/*
+  pull_request:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment Environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+      service:
+        description: 'Service to Deploy'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - game-server
+          - matchmaking
+          - game-persistence
+      force:
+        description: 'Force Deployment'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # 코드 품질 검사
+  code-quality:
+    name: Code Quality Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 black isort mypy pytest pytest-cov
+
+      - name: Lint with flake8
+        run: |
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=88 --statistics
+
+      - name: Format check with black
+        run: |
+          black --check --diff .
+
+      - name: Import sorting check with isort
+        run: |
+          isort --check-only --diff .
+
+      - name: Type check with mypy
+        run: |
+          mypy --ignore-missing-imports --no-strict-optional .
+
+  # 보안 취약점 스캔
+  security-scan:
+    name: Security Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Run Snyk security scan
+        uses: snyk/actions/python@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high
+
+  # 단위 테스트
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.10', '3.11']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Run unit tests
+        run: |
+          pytest tests/unit/ --cov=src --cov-report=xml --cov-report=html
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+
+  # 통합 테스트
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [unit-tests]
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Run integration tests
+        run: |
+          pytest tests/integration/ --cov=src --cov-report=xml
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+          REDIS_URL: redis://localhost:6379/0
+
+  # 성능 테스트
+  performance-tests:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    needs: [integration-tests]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install k6
+        run: |
+          curl -L https://github.com/grafana/k6/releases/download/v0.45.0/k6-v0.45.0-linux-amd64.tar.gz | tar xz
+          sudo cp k6-v0.45.0-linux-amd64/k6 /usr/local/bin
+
+      - name: Run performance tests
+        run: |
+          k6 run tests/performance/load-test.js
+          k6 run tests/performance/stress-test.js
+          k6 run tests/performance/spike-test.js
+
+  # Docker 이미지 빌드
+  build-image:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: [performance-tests]
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # 개발 환경 배포
+  deploy-development:
+    name: Deploy to Development
+    runs-on: ubuntu-latest
+    needs: [build-image]
+    if: github.ref == 'refs/heads/develop' || github.event.inputs.environment == 'development'
+    environment: development
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Configure kubectl
+        run: |
+          echo "${{ secrets.DEV_KUBECONFIG }}" | base64 -d > kubeconfig
+          export KUBECONFIG=kubeconfig
+
+      - name: Deploy to development
+        run: |
+          export KUBECONFIG=kubeconfig
+          kubectl set image deployment/game-server game-server=${{ needs.build-image.outputs.image-tag }} -n game-development
+          kubectl set image deployment/matchmaking matchmaking=${{ needs.build-image.outputs.image-tag }} -n game-development
+          kubectl set image deployment/game-persistence game-persistence=${{ needs.build-image.outputs.image-tag }} -n game-development
+
+      - name: Verify deployment
+        run: |
+          export KUBECONFIG=kubeconfig
+          kubectl rollout status deployment/game-server -n game-development --timeout=300s
+          kubectl rollout status deployment/matchmaking -n game-development --timeout=300s
+          kubectl rollout status deployment/game-persistence -n game-development --timeout=300s
+
+  # 스테이징 환경 배포
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [build-image]
+    if: github.ref == 'refs/heads/main' || github.event.inputs.environment == 'staging'
+    environment: staging
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Configure kubectl
+        run: |
+          echo "${{ secrets.STAGING_KUBECONFIG }}" | base64 -d > kubeconfig
+          export KUBECONFIG=kubeconfig
+
+      - name: Deploy to staging
+        run: |
+          export KUBECONFIG=kubeconfig
+          kubectl set image deployment/game-server game-server=${{ needs.build-image.outputs.image-tag }} -n game-staging
+          kubectl set image deployment/matchmaking matchmaking=${{ needs.build-image.outputs.image-tag }} -n game-staging
+          kubectl set image deployment/game-persistence game-persistence=${{ needs.build-image.outputs.image-tag }} -n game-staging
+
+      - name: Verify deployment
+        run: |
+          export KUBECONFIG=kubeconfig
+          kubectl rollout status deployment/game-server -n game-staging --timeout=300s
+          kubectl rollout status deployment/matchmaking -n game-staging --timeout=300s
+          kubectl rollout status deployment/game-persistence -n game-staging --timeout=300s
+
+      - name: Run smoke tests
+        run: |
+          export KUBECONFIG=kubeconfig
+          # 스테이징 환경에서 스모크 테스트 실행
+          pytest tests/smoke/ --kubeconfig=kubeconfig --namespace=game-staging
+
+  # 프로덕션 환경 배포 승인
+  production-approval:
+    name: Production Deployment Approval
+    runs-on: ubuntu-latest
+    needs: [deploy-staging]
+    if: github.ref == 'refs/heads/main' || github.event.inputs.environment == 'production'
+    environment: production
+
+    steps:
+      - name: Wait for approval
+        run: echo "Waiting for production deployment approval..."
+
+      - name: Notify approval required
+        run: |
+          echo "Production deployment requires manual approval"
+          echo "Please approve the deployment in GitHub Environments"
+
+  # 프로덕션 환경 배포
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [production-approval]
+    if: github.ref == 'refs/heads/main' || github.event.inputs.environment == 'production'
+    environment: production
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Configure kubectl
+        run: |
+          echo "${{ secrets.PROD_KUBECONFIG }}" | base64 -d > kubeconfig
+          export KUBECONFIG=kubeconfig
+
+      - name: Pre-deployment health check
+        run: |
+          export KUBECONFIG=kubeconfig
+          # 배포 전 현재 서비스 상태 확인
+          kubectl get pods -n game-production
+          kubectl get svc -n game-production
+
+      - name: Deploy to production
+        run: |
+          export KUBECONFIG=kubeconfig
+          # Blue-Green 배포 실행
+          kubectl apply -f k8s/production/rollout.yaml
+
+      - name: Monitor deployment
+        run: |
+          export KUBECONFIG=kubeconfig
+          # 배포 진행 상황 모니터링
+          kubectl rollout status rollout/game-server -n game-production --timeout=900s
+          kubectl rollout status rollout/matchmaking -n game-production --timeout=900s
+          kubectl rollout status rollout/game-persistence -n game-production --timeout=900s
+
+      - name: Post-deployment verification
+        run: |
+          export KUBECONFIG=kubeconfig
+          # 배포 후 SLO 검증
+          ./scripts/verify-slo.sh production
+
+      - name: Notify deployment success
+        if: success()
+        run: |
+          echo "Production deployment completed successfully"
+          # Slack 알림 전송
+          curl -X POST -H 'Content-type: application/json' \
+            --data '{"text":"✅ Production deployment completed successfully"}' \
+            ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # 배포 후 모니터링
+  post-deployment-monitoring:
+    name: Post-Deployment Monitoring
+    runs-on: ubuntu-latest
+    needs: [deploy-production]
+    if: github.ref == 'refs/heads/main' || github.event.inputs.environment == 'production'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Configure kubectl
+        run: |
+          echo "${{ secrets.PROD_KUBECONFIG }}" | base64 -d > kubeconfig
+          export KUBECONFIG=kubeconfig
+
+      - name: Monitor SLO metrics
+        run: |
+          export KUBECONFIG=kubeconfig
+          # 30분간 SLO 메트릭 모니터링
+          ./scripts/monitor-slo.sh production 30m
+
+      - name: Run post-deployment tests
+        run: |
+          export KUBECONFIG=kubeconfig
+          # 배포 후 종합 테스트 실행
+          pytest tests/post-deployment/ --kubeconfig=kubeconfig --namespace=game-production
+
+      - name: Generate deployment report
+        run: |
+          export KUBECONFIG=kubeconfig
+          # 배포 결과 리포트 생성
+          ./scripts/generate-deployment-report.sh production
+
+  # 롤백 준비 (필요시)
+  prepare-rollback:
+    name: Prepare Rollback
+    runs-on: ubuntu-latest
+    needs: [deploy-production]
+    if: github.ref == 'refs/heads/main' || github.event.inputs.environment == 'production'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Configure kubectl
+        run: |
+          echo "${{ secrets.PROD_KUBECONFIG }}" | base64 -d > kubeconfig
+          export KUBECONFIG=kubeconfig
+
+      - name: Save current deployment state
+        run: |
+          export KUBECONFIG=kubeconfig
+          # 현재 배포 상태 저장 (롤백용)
+          kubectl get deployment -n game-production -o yaml > current-deployment-state.yaml
+          kubectl get service -n game-production -o yaml > current-service-state.yaml
+
+      - name: Upload rollback artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rollback-artifacts
+          path: |
+            current-deployment-state.yaml
+            current-service-state.yaml
+          retention-days: 30
+
+  # 배포 성공률 및 메트릭 수집
+  deployment-metrics:
+    name: Collect Deployment Metrics
+    runs-on: ubuntu-latest
+    needs: [deploy-production, post-deployment-monitoring]
+    if: always()
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Collect deployment metrics
+        run: |
+          # 배포 성공률, 소요 시간 등 메트릭 수집
+          echo "Deployment duration: ${{ needs.deploy-production.result == 'success' && 'SUCCESS' || 'FAILED' }}"
+          echo "Deployment timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+      - name: Upload metrics to Prometheus
+        run: |
+          # Prometheus에 배포 메트릭 업로드
+          curl -X POST -d "deployment_success_total{service=\"game-service\",environment=\"production\",result=\"${{ needs.deploy-production.result == 'success' && 'success' || 'failed' }}\"} 1" \
+            ${{ secrets.PROMETHEUS_PUSHGATEWAY_URL }}/metrics/job/deployment_pipeline

@@ -1,0 +1,308 @@
+# 모바일 게임 서비스 모니터링 스택 Helm 차트 기본 값
+# kube-prometheus-stack 기반 모니터링 스택 설정
+
+# Prometheus 설정
+prometheus:
+  enabled: true
+  prometheusSpec:
+    retention: 30d
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: fast-ssd
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 100Gi
+    resources:
+      requests:
+        memory: 2Gi
+        cpu: 500m
+      limits:
+        memory: 4Gi
+        cpu: 1000m
+    scrapeInterval: 30s
+    evaluationInterval: 30s
+    additionalScrapeConfigs:
+      - job_name: 'game-server-metrics'
+        static_configs:
+          - targets: ['game-server:9090']
+        scrape_interval: 15s
+        metrics_path: '/metrics'
+      - job_name: 'matchmaking-metrics'
+        static_configs:
+          - targets: ['matchmaking:9090']
+        scrape_interval: 15s
+        metrics_path: '/metrics'
+      - job_name: 'game-persistence-metrics'
+        static_configs:
+          - targets: ['game-persistence:9090']
+        scrape_interval: 15s
+        metrics_path: '/metrics'
+      - job_name: 'game-client-metrics'
+        static_configs:
+          - targets: ['game-client-exporter:9090']
+        scrape_interval: 30s
+        metrics_path: '/metrics'
+      - job_name: 'game-load-balancer-metrics'
+        static_configs:
+          - targets: ['game-load-balancer-exporter:9090']
+        scrape_interval: 30s
+        metrics_path: '/metrics'
+
+# AlertManager 설정
+alertmanager:
+  enabled: true
+  alertmanagerSpec:
+    retention: 168h
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: fast-ssd
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+    resources:
+      requests:
+        memory: 100Mi
+        cpu: 100m
+      limits:
+        memory: 200Mi
+        cpu: 200m
+    config:
+      global:
+        slack_api_url: 'https://hooks.slack.com/services/YOUR_SLACK_WEBHOOK'
+        pagerduty_url: 'https://events.pagerduty.com/v2/enqueue'
+      route:
+        group_by: ['alertname', 'service', 'sli', 'team']
+        group_wait: 10s
+        group_interval: 10s
+        repeat_interval: 1h
+        receiver: 'game-sre-oncall'
+        routes:
+          - match:
+              severity: critical
+            receiver: 'pagerduty-critical'
+            continue: true
+          - match:
+              service: game-server
+            receiver: 'game-server-alerts'
+          - match:
+              service: matchmaking
+            receiver: 'matchmaking-alerts'
+      receivers:
+        - name: 'game-sre-oncall'
+          slack_configs:
+            - channel: '#game-sre-oncall'
+              send_resolved: true
+        - name: 'game-server-alerts'
+          slack_configs:
+            - channel: '#game-server'
+              send_resolved: true
+        - name: 'matchmaking-alerts'
+          slack_configs:
+            - channel: '#matchmaking'
+              send_resolved: true
+        - name: 'pagerduty-critical'
+          pagerduty_configs:
+            - service_key: 'YOUR_PAGERDUTY_SERVICE_KEY'
+              send_resolved: true
+
+# Grafana 설정
+grafana:
+  enabled: true
+  adminPassword: 'game-sre-admin-2024!'
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: 'game-service-dashboards'
+          orgId: 1
+          folder: 'Game Service'
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/game-service
+  dashboards:
+    game-service:
+      game-service-overview:
+        json: |
+          {
+            "title": "Game Service Overview",
+            "type": "dashboard"
+          }
+      game-server-slo:
+        json: |
+          {
+            "title": "Game Server SLO",
+            "type": "dashboard"
+          }
+      matchmaking-slo:
+        json: |
+          {
+            "title": "Matchmaking SLO",
+            "type": "dashboard"
+          }
+      game-infrastructure:
+        json: |
+          {
+            "title": "Game Infrastructure",
+            "type": "dashboard"
+          }
+  grafana.ini:
+    server:
+      root_url: http://localhost:3000
+    users:
+      allow_sign_up: false
+    auth.anonymous:
+      enabled: false
+    security:
+      allow_embedding: true
+    date_formats:
+      default_timezone: Asia/Seoul
+    appearance:
+      default_theme: dark
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          url: http://prometheus-operated:9090
+          access: proxy
+          isDefault: true
+        - name: Loki
+          type: loki
+          url: http://loki:3100
+          access: proxy
+        - name: Tempo
+          type: tempo
+          url: http://tempo:3200
+          access: proxy
+
+# Loki 설정
+loki:
+  enabled: true
+  loki:
+    auth_enabled: false
+    storage:
+      type: filesystem
+      filesystem:
+        chunks_directory: /var/loki/chunks
+        rules_directory: /var/loki/rules
+    limits_config:
+      enforce_metric_name: false
+      reject_old_samples: true
+      reject_old_samples_max_age: 168h
+
+# Tempo 설정
+tempo:
+  enabled: true
+  tempo:
+    storage:
+      trace:
+        backend: local
+        local:
+          path: /var/tempo/traces
+    metrics_generator:
+      enabled: true
+
+# 게임 서비스 모니터링 설정
+gameServiceMonitoring:
+  # 게임 피크 시간대 설정
+  peakHours:
+    start: "18:00"
+    end: "22:00"
+    timezone: "Asia/Seoul"
+    sloMultiplier: 1.2
+
+  # 게임 이벤트 기간 설정
+  eventPeriods:
+    - name: "weekend"
+      days: ["Saturday", "Sunday"]
+      sloMultiplier: 1.1
+    - name: "holiday"
+      dates: ["2024-01-01", "2024-02-09", "2024-02-12", "2024-03-01", "2024-05-05", "2024-06-06", "2024-08-15", "2024-10-03", "2024-10-09", "2024-12-25"]
+      sloMultiplier: 1.15
+
+  # 게임 서비스 헬스체크 설정
+  healthChecks:
+    gameServer:
+      endpoint: "/health"
+      interval: 30s
+      timeout: 10s
+      failureThreshold: 3
+    matchmaking:
+      endpoint: "/health"
+      interval: 30s
+      timeout: 10s
+      failureThreshold: 3
+    gamePersistence:
+      endpoint: "/health"
+      interval: 30s
+      timeout: 10s
+      failureThreshold: 3
+
+  # 로깅 설정
+  logging:
+    level: "INFO"
+    format: "json"
+    retention: 30d
+    sampling:
+      enabled: true
+      rate: 0.1
+
+  # 추적 설정
+  tracing:
+    enabled: true
+    sampling:
+      rate: 0.01
+    propagation:
+      - "b3"
+      - "jaeger"
+
+# 추가 구성 요소
+additionalComponents:
+  # 게임 클라이언트 메트릭 익스포터
+  gameClientExporter:
+    enabled: true
+    image:
+      repository: prom/node-exporter
+      tag: v1.6.1
+    resources:
+      requests:
+        memory: 50Mi
+        cpu: 50m
+      limits:
+        memory: 100Mi
+        cpu: 100m
+
+  # 게임 로드밸런서 메트릭 익스포터
+  gameLoadBalancerExporter:
+    enabled: true
+    image:
+      repository: prom/nginx-exporter
+      tag: v0.11.0
+    resources:
+      requests:
+        memory: 50Mi
+        cpu: 50m
+      limits:
+        memory: 100Mi
+        cpu: 100m
+
+# 네임스페이스 설정
+namespaceOverride: "monitoring"
+
+# 라벨 설정
+commonLabels:
+  service: "game-service"
+  team: "game-sre"
+  environment: "production"
+  app.kubernetes.io/name: "game-service-monitoring"
+  app.kubernetes.io/instance: "game-monitoring"
+  app.kubernetes.io/version: "1.0.0"
+  app.kubernetes.io/component: "monitoring"
+  app.kubernetes.io/part-of: "game-service-sre"

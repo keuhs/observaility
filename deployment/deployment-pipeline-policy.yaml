@@ -1,0 +1,565 @@
+# 게임 서비스 안전한 배포 파이프라인 정책
+# SLO 기반 가드레일과 자동 롤백으로 변경 위험 최소화
+
+apiVersion: sre.observaility.com/v1
+kind: DeploymentPipelinePolicy
+metadata:
+  name: game-service-deployment-policy
+  namespace: game-sre
+  labels:
+    service: game-service
+    team: game-sre
+    environment: production
+spec:
+  description: "모바일 게임 서비스 안전한 배포 파이프라인 정책"
+
+  # 배포 전략
+  deploymentStrategy:
+    # 기본 배포 전략
+    default:
+      type: "rolling-update"
+      maxSurge: "25%"
+      maxUnavailable: "0"
+      minReadySeconds: 30
+      progressDeadlineSeconds: 600
+
+    # 서비스별 배포 전략
+    serviceSpecific:
+      - service: "game-server"
+        strategy:
+          type: "blue-green"
+          blueGreen:
+            autoPromotion: false
+            autoPromotionSeconds: 300
+            scaleDownDelaySeconds: 60
+            prePromotionAnalysis:
+              - name: "game-server-health"
+                args:
+                  - "--endpoint=http://game-server-blue:8080/health"
+                  - "--timeout=30s"
+                  - "--retries=3"
+            postPromotionAnalysis:
+              - name: "game-server-slo"
+                args:
+                  - "--slo=game_server_availability"
+                  - "--window=5m"
+                  - "--threshold=0.999"
+
+      - service: "matchmaking"
+        strategy:
+          type: "canary"
+          canary:
+            steps:
+              - setWeight: 10
+                pause:
+                  duration: "2m"
+              - setWeight: 50
+                pause:
+                  duration: "5m"
+              - setWeight: 100
+                pause:
+                  duration: "10m"
+            analysis:
+              - name: "matchmaking-success-rate"
+                args:
+                  - "--slo=game_matching_success_rate"
+                  - "--window=5m"
+                  - "--threshold=0.95"
+
+      - service: "game-persistence"
+        strategy:
+          type: "rolling-update"
+          rollingUpdate:
+            maxSurge: "50%"
+            maxUnavailable: "0"
+            minReadySeconds: 60
+            progressDeadlineSeconds: 900
+
+    # 환경별 배포 전략
+    environmentSpecific:
+      - environment: "development"
+        strategy:
+          type: "recreate"
+          recreate:
+            timeoutSeconds: 300
+
+      - environment: "staging"
+        strategy:
+          type: "rolling-update"
+          rollingUpdate:
+            maxSurge: "100%"
+            maxUnavailable: "0"
+            minReadySeconds: 15
+            progressDeadlineSeconds: 300
+
+      - environment: "production"
+        strategy:
+          type: "blue-green"
+          blueGreen:
+            autoPromotion: false
+            autoPromotionSeconds: 600
+            scaleDownDelaySeconds: 120
+
+  # SLO 기반 가드레일
+  sloGuardrails:
+    # 게임 서버 가용성 가드레일
+    gameServerAvailability:
+      metric: "game_server_availability"
+      target: 0.999
+      window: "5m"
+      threshold: 0.998
+      action: "rollback"
+      description: "게임 서버 가용성이 99.8% 미만으로 떨어지면 자동 롤백"
+
+      # 가드레일 단계
+      stages:
+        - name: "warning"
+          threshold: 0.999
+          action: "alert"
+          duration: "2m"
+
+        - name: "critical"
+          threshold: 0.998
+          action: "rollback"
+          duration: "1m"
+
+    # 게임 매칭 성공률 가드레일
+    gameMatchingSuccessRate:
+      metric: "game_matching_success_rate"
+      target: 0.95
+      window: "5m"
+      threshold: 0.90
+      action: "rollback"
+      description: "게임 매칭 성공률이 90% 미만으로 떨어지면 자동 롤백"
+
+      stages:
+        - name: "warning"
+          threshold: 0.95
+          action: "alert"
+          duration: "3m"
+
+        - name: "critical"
+          threshold: 0.90
+          action: "rollback"
+          duration: "2m"
+
+    # 게임 데이터 저장 성공률 가드레일
+    gameDataPersistenceSuccessRate:
+      metric: "game_data_persistence_success_rate"
+      target: 0.9999
+      window: "5m"
+      threshold: 0.999
+      action: "rollback"
+      description: "게임 데이터 저장 성공률이 99.9% 미만으로 떨어지면 자동 롤백"
+
+      stages:
+        - name: "warning"
+          threshold: 0.9999
+          action: "alert"
+          duration: "2m"
+
+        - name: "critical"
+          threshold: 0.999
+          action: "rollback"
+          duration: "1m"
+
+    # 응답 시간 가드레일
+    gameResponseTime:
+      metric: "game_response_time_p95"
+      target: 500
+      window: "5m"
+      threshold: 800
+      action: "rollback"
+      description: "게임 응답 시간 p95가 800ms를 초과하면 자동 롤백"
+      unit: "ms"
+
+      stages:
+        - name: "warning"
+          threshold: 500
+          action: "alert"
+          duration: "3m"
+
+        - name: "critical"
+          threshold: 800
+          action: "rollback"
+          duration: "2m"
+
+  # 배포 단계 및 검증
+  deploymentStages:
+    # 사전 검증 단계
+    preDeployment:
+      - name: "code-review"
+        description: "코드 리뷰 완료"
+        required: true
+        timeout: "24h"
+        approvers:
+          - "@senior-developer"
+          - "@tech-lead"
+
+      - name: "security-scan"
+        description: "보안 취약점 스캔 완료"
+        required: true
+        timeout: "2h"
+        tools:
+          - "snyk"
+          - "trivy"
+          - "bandit"
+
+      - name: "unit-tests"
+        description: "단위 테스트 통과"
+        required: true
+        timeout: "30m"
+        coverage: 80
+
+      - name: "integration-tests"
+        description: "통합 테스트 통과"
+        required: true
+        timeout: "1h"
+
+      - name: "performance-tests"
+        description: "성능 테스트 통과"
+        required: true
+        timeout: "2h"
+        criteria:
+          - "응답 시간 p95 < 500ms"
+          - "처리량 > 1000 RPS"
+          - "메모리 사용량 < 2GB"
+
+    # 배포 중 검증 단계
+    deployment:
+      - name: "infrastructure-check"
+        description: "인프라 리소스 확인"
+        required: true
+        timeout: "5m"
+        checks:
+          - "CPU 예약 가능 여부"
+          - "메모리 예약 가능 여부"
+          - "스토리지 용량 확인"
+          - "네트워크 대역폭 확인"
+
+      - name: "service-health-check"
+        description: "서비스 헬스체크"
+        required: true
+        timeout: "2m"
+        endpoints:
+          - "/health"
+          - "/ready"
+          - "/live"
+
+      - name: "dependency-check"
+        description: "의존성 서비스 연결 확인"
+        required: true
+        timeout: "3m"
+        services:
+          - "database"
+          - "redis"
+          - "message-queue"
+          - "external-apis"
+
+    # 배포 후 검증 단계
+    postDeployment:
+      - name: "slo-verification"
+        description: "SLO 지표 검증"
+        required: true
+        timeout: "10m"
+        metrics:
+          - "game_server_availability"
+          - "game_matching_success_rate"
+          - "game_data_persistence_success_rate"
+          - "game_response_time_p95"
+
+      - name: "user-experience-test"
+        description: "사용자 경험 테스트"
+        required: true
+        timeout: "15m"
+        scenarios:
+          - "게임 로그인"
+          - "게임 매칭"
+          - "게임 플레이"
+          - "데이터 저장"
+          - "결제 처리"
+
+      - name: "load-test"
+        description: "부하 테스트"
+        required: false
+        timeout: "30m"
+        criteria:
+          - "정상 부하에서 응답 시간 < 500ms"
+          - "피크 부하에서 응답 시간 < 1s"
+          - "오류율 < 0.1%"
+
+  # 자동 롤백 정책
+  autoRollbackPolicy:
+    # 롤백 트리거
+    triggers:
+      - name: "slo-violation"
+        description: "SLO 위반 시 자동 롤백"
+        conditions:
+          - metric: "game_server_availability"
+            threshold: 0.998
+            duration: "1m"
+          - metric: "game_matching_success_rate"
+            threshold: 0.90
+            duration: "2m"
+          - metric: "game_data_persistence_success_rate"
+            threshold: 0.999
+            duration: "1m"
+
+      - name: "error-rate-spike"
+        description: "오류율 급증 시 자동 롤백"
+        conditions:
+          - metric: "game_error_rate"
+            threshold: 0.01
+            duration: "2m"
+
+      - name: "response-time-degradation"
+        description: "응답 시간 저하 시 자동 롤백"
+        conditions:
+          - metric: "game_response_time_p95"
+            threshold: 800
+            duration: "2m"
+
+    # 롤백 실행
+    execution:
+      strategy: "immediate"
+      timeout: "5m"
+      notification:
+        - channel: "slack"
+          template: "rollback-executed"
+        - channel: "pagerduty"
+          severity: "critical"
+
+      # 롤백 후 검증
+      verification:
+        - name: "service-recovery"
+          description: "서비스 복구 확인"
+          timeout: "5m"
+          checks:
+            - "헬스체크 통과"
+            - "SLO 지표 정상화"
+            - "오류율 정상화"
+
+        - name: "user-impact-assessment"
+          description: "사용자 영향 평가"
+          timeout: "10m"
+          metrics:
+            - "영향 받은 사용자 수"
+            - "서비스 중단 시간"
+            - "사용자 불만 정도"
+
+  # 배포 승인 및 권한
+  approvalAndPermissions:
+    # 승인 단계
+    approvalStages:
+      - name: "technical-review"
+        description: "기술적 검토"
+        required: true
+        approvers:
+          - "@senior-developer"
+          - "@tech-lead"
+        criteria:
+          - "코드 품질"
+          - "아키텍처 적합성"
+          - "성능 영향"
+
+      - name: "security-review"
+        description: "보안 검토"
+        required: true
+        approvers:
+          - "@security-engineer"
+          - "@security-lead"
+        criteria:
+          - "보안 취약점"
+          - "권한 관리"
+          - "데이터 보호"
+
+      - name: "business-review"
+        description: "비즈니스 검토"
+        required: false
+        approvers:
+          - "@product-manager"
+          - "@business-lead"
+        criteria:
+          - "사용자 영향"
+          - "비즈니스 가치"
+          - "위험도 평가"
+
+    # 권한 레벨
+    permissionLevels:
+      - level: "developer"
+        permissions:
+          - "development-environment-deploy"
+          - "staging-environment-deploy"
+          - "rollback-development"
+
+      - level: "senior-developer"
+        permissions:
+          - "all-developer-permissions"
+          - "production-deploy-approval"
+          - "rollback-staging"
+
+      - level: "tech-lead"
+        permissions:
+          - "all-senior-developer-permissions"
+          - "production-deploy"
+          - "rollback-production"
+          - "deployment-policy-change"
+
+      - level: "sre-engineer"
+        permissions:
+          - "all-tech-lead-permissions"
+          - "emergency-rollback"
+          - "deployment-pipeline-modification"
+
+  # 배포 모니터링 및 알림
+  monitoringAndAlerting:
+    # 배포 상태 모니터링
+    deploymentMonitoring:
+      - name: "deployment-progress"
+        description: "배포 진행 상황 모니터링"
+        metrics:
+          - "deployment_duration"
+          - "deployment_success_rate"
+          - "rollback_frequency"
+
+      - name: "service-health"
+        description: "배포 후 서비스 상태 모니터링"
+        metrics:
+          - "service_uptime"
+          - "error_rate"
+          - "response_time"
+          - "throughput"
+
+    # 알림 규칙
+    alertingRules:
+      - name: "deployment-failure"
+        description: "배포 실패 시 알림"
+        severity: "critical"
+        channels:
+          - "slack"
+          - "pagerduty"
+        conditions:
+          - "배포 실패"
+          - "롤백 실행"
+          - "SLO 위반"
+
+      - name: "deployment-slow"
+        description: "배포 지연 시 알림"
+        severity: "warning"
+        channels:
+          - "slack"
+        conditions:
+          - "배포 시간 > 30분"
+          - "검증 단계 지연"
+
+      - name: "post-deployment-issues"
+        description: "배포 후 문제 발생 시 알림"
+        severity: "critical"
+        channels:
+          - "slack"
+          - "pagerduty"
+        conditions:
+          - "SLO 위반"
+          - "오류율 증가"
+          - "응답 시간 저하"
+
+  # 배포 도구 및 자동화
+  toolsAndAutomation:
+    # CI/CD 파이프라인
+    cicdPipeline:
+      - name: "GitHub Actions"
+        purpose: "코드 빌드 및 테스트"
+        stages:
+          - "code-checkout"
+          - "dependency-install"
+          - "linting"
+          - "unit-tests"
+          - "security-scan"
+          - "build"
+          - "push-image"
+
+      - name: "ArgoCD"
+        purpose: "GitOps 기반 배포"
+        features:
+          - "자동 동기화"
+          - "롤백 지원"
+          - "헬스체크"
+          - "배포 히스토리"
+
+      - name: "Argo Rollouts"
+        purpose: "고급 배포 전략"
+        features:
+          - "Blue-Green 배포"
+          - "Canary 배포"
+          - "SLO 기반 승인"
+          - "자동 롤백"
+
+    # 테스트 자동화
+    testAutomation:
+      - name: "unit-tests"
+        tool: "pytest"
+        coverage: 80
+        timeout: "30m"
+
+      - name: "integration-tests"
+        tool: "pytest"
+        coverage: 70
+        timeout: "1h"
+
+      - name: "performance-tests"
+        tool: "k6"
+        scenarios:
+          - "load-test"
+          - "stress-test"
+          - "spike-test"
+        timeout: "2h"
+
+      - name: "security-tests"
+        tool: "snyk"
+        timeout: "1h"
+
+    # 모니터링 자동화
+    monitoringAutomation:
+      - name: "deployment-metrics"
+        tool: "Prometheus"
+        metrics:
+          - "deployment_duration_seconds"
+          - "deployment_success_total"
+          - "rollback_total"
+
+      - name: "service-metrics"
+        tool: "Prometheus"
+        metrics:
+          - "game_requests_total"
+          - "game_response_time_seconds"
+          - "game_errors_total"
+
+      - name: "slo-metrics"
+        tool: "Prometheus"
+        metrics:
+          - "slo:error_budget_burn_rate:game_server_availability"
+          - "slo:error_budget_burn_rate:game_matching_success_rate"
+          - "slo:error_budget_burn_rate:game_data_persistence_success_rate"
+
+  # 배포 정책 검토 및 개선
+  policyReview:
+    frequency: "월간"
+    participants:
+      - "SRE 팀"
+      - "개발 팀 리드"
+      - "보안 팀"
+      - "운영 팀"
+
+    reviewTopics:
+      - "배포 성공률 분석"
+      - "롤백 빈도 및 원인 분석"
+      - "SLO 위반 패턴 분석"
+      - "배포 시간 최적화"
+      - "자동화 개선 방안"
+
+    improvementProcess:
+      - "데이터 수집 및 분석"
+      - "개선안 도출 및 검토"
+      - "정책 수정 및 승인"
+      - "팀 교육 및 공지"
+      - "개선 효과 측정"

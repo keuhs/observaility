@@ -1,0 +1,719 @@
+# 게임 서비스 카오스 실험 매니페스트
+# Litmus Chaos를 사용한 다양한 장애 시나리오
+
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosEngine
+metadata:
+  name: game-service-chaos-engine
+  namespace: game-production
+  labels:
+    app: game-service
+    team: game-sre
+    environment: production
+spec:
+  appinfo:
+    appns: game-production
+    applabel: "app=game-server"
+    appkind: deployment
+
+  # 실험 실행 조건
+  annotationCheck: "false"
+  engineState: "active"
+  chaosServiceAccount: game-service-chaos-sa
+
+  # 실험 구성
+  experiments:
+    - name: pod-delete
+      spec:
+        components:
+          env:
+            - name: TOTAL_CHAOS_DURATION
+              value: "60"
+            - name: CHAOS_INTERVAL
+              value: "30"
+            - name: FORCE
+              value: "true"
+            - name: PODS_AFFECTED_PERC
+              value: "20"
+            - name: RAMP_TIME
+              value: "10"
+            - name: SEQUENCE
+              value: "parallel"
+
+    - name: pod-cpu-hog
+      spec:
+        components:
+          env:
+            - name: TOTAL_CHAOS_DURATION
+              value: "120"
+            - name: CPU_CORES
+              value: "2"
+            - name: RAMP_TIME
+              value: "10"
+            - name: PODS_AFFECTED_PERC
+              value: "30"
+
+    - name: pod-memory-hog
+      spec:
+        components:
+          env:
+            - name: TOTAL_CHAOS_DURATION
+              value: "120"
+            - name: MEMORY_CONSUMPTION
+              value: "1000"
+            - name: RAMP_TIME
+              value: "10"
+            - name: PODS_AFFECTED_PERC
+              value: "30"
+
+    - name: network-delay
+      spec:
+        components:
+          env:
+            - name: TOTAL_CHAOS_DURATION
+              value: "180"
+            - name: NETWORK_DELAY
+              value: "2000"
+            - name: NETWORK_JITTER
+              value: "1000"
+            - name: RAMP_TIME
+              value: "10"
+            - name: PODS_AFFECTED_PERC
+              value: "50"
+
+    - name: network-loss
+      spec:
+        components:
+          env:
+            - name: TOTAL_CHAOS_DURATION
+              value: "120"
+            - name: NETWORK_PACKET_LOSS_PERCENTAGE
+              value: "30"
+            - name: RAMP_TIME
+              value: "10"
+            - name: PODS_AFFECTED_PERC
+              value: "40"
+---
+# Pod 삭제 실험
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: pod-delete
+  namespace: game-production
+  labels:
+    app: game-service
+    team: game-sre
+spec:
+  definition:
+    scope: Namespaced
+    image: "litmuschaos/go-runner:latest"
+    imagePullPolicy: Always
+    args:
+      - -c
+      - ./experiments -name pod-delete
+    command:
+      - /bin/bash
+    env:
+      - name: TOTAL_CHAOS_DURATION
+        value: "60"
+      - name: CHAOS_INTERVAL
+        value: "30"
+      - name: FORCE
+        value: "true"
+      - name: PODS_AFFECTED_PERC
+        value: "20"
+      - name: RAMP_TIME
+        value: "10"
+      - name: SEQUENCE
+        value: "parallel"
+    labels:
+      name: pod-delete
+      app.kubernetes.io/part-of: litmus
+      app.kubernetes.io/component: experiment
+      app.kubernetes.io/version: latest
+---
+# Pod CPU 고갈 실험
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: pod-cpu-hog
+  namespace: game-production
+  labels:
+    app: game-service
+    team: game-sre
+spec:
+  definition:
+    scope: Namespaced
+    image: "litmuschaos/go-runner:latest"
+    imagePullPolicy: Always
+    args:
+      - -c
+      - ./experiments -name pod-cpu-hog
+    command:
+      - /bin/bash
+    env:
+      - name: TOTAL_CHAOS_DURATION
+        value: "120"
+      - name: CPU_CORES
+        value: "2"
+      - name: RAMP_TIME
+        value: "10"
+      - name: PODS_AFFECTED_PERC
+        value: "30"
+    labels:
+      name: pod-cpu-hog
+      app.kubernetes.io/part-of: litmus
+      app.kubernetes.io/component: experiment
+      app.kubernetes.io/version: latest
+---
+# Pod 메모리 고갈 실험
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: pod-memory-hog
+  namespace: game-production
+  labels:
+    app: game-service
+    team: game-sre
+spec:
+  definition:
+    scope: Namespaced
+    image: "litmuschaos/go-runner:latest"
+    imagePullPolicy: Always
+    args:
+      - -c
+      - ./experiments -name pod-memory-hog
+    command:
+      - /bin/bash
+    env:
+      - name: TOTAL_CHAOS_DURATION
+        value: "120"
+      - name: MEMORY_CONSUMPTION
+        value: "1000"
+      - name: RAMP_TIME
+        value: "10"
+      - name: PODS_AFFECTED_PERC
+        value: "30"
+    labels:
+      name: pod-memory-hog
+      app.kubernetes.io/part-of: litmus
+      app.kubernetes.io/component: experiment
+      app.kubernetes.io/version: latest
+---
+# 네트워크 지연 실험
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: network-delay
+  namespace: game-production
+  labels:
+    app: game-service
+    team: game-sre
+spec:
+  definition:
+    scope: Namespaced
+    image: "litmuschaos/go-runner:latest"
+    imagePullPolicy: Always
+    args:
+      - -c
+      - ./experiments -name network-delay
+    command:
+      - /bin/bash
+    env:
+      - name: TOTAL_CHAOS_DURATION
+        value: "180"
+      - name: NETWORK_DELAY
+        value: "2000"
+      - name: NETWORK_JITTER
+        value: "1000"
+      - name: RAMP_TIME
+        value: "10"
+      - name: PODS_AFFECTED_PERC
+        value: "50"
+    labels:
+      name: network-delay
+      app.kubernetes.io/part-of: litmus
+      app.kubernetes.io/component: experiment
+      app.kubernetes.io/version: latest
+---
+# 네트워크 패킷 손실 실험
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: network-loss
+  namespace: game-production
+  labels:
+    app: game-service
+    team: game-sre
+spec:
+  definition:
+    scope: Namespaced
+    image: "litmuschaos/go-runner:latest"
+    imagePullPolicy: Always
+    args:
+      - -c
+      - ./experiments -name network-loss
+    command:
+      - /bin/bash
+    env:
+      - name: TOTAL_CHAOS_DURATION
+        value: "120"
+      - name: NETWORK_PACKET_LOSS_PERCENTAGE
+        value: "30"
+      - name: RAMP_TIME
+        value: "10"
+      - name: PODS_AFFECTED_PERC
+        value: "40"
+    labels:
+      name: network-loss
+      app.kubernetes.io/part-of: litmus
+      app.kubernetes.io/component: experiment
+      app.kubernetes.io/version: latest
+---
+# 데이터베이스 연결 실패 실험
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: database-connection-failure
+  namespace: game-production
+  labels:
+    app: game-service
+    team: game-sre
+spec:
+  definition:
+    scope: Namespaced
+    image: "litmuschaos/go-runner:latest"
+    imagePullPolicy: Always
+    args:
+      - -c
+      - ./experiments -name database-connection-failure
+    command:
+      - /bin/bash
+    env:
+      - name: TOTAL_CHAOS_DURATION
+        value: "300"
+      - name: RAMP_TIME
+        value: "30"
+      - name: TARGET_CONTAINER
+        value: "game-persistence"
+      - name: CONTAINER_RUNTIME
+        value: "docker"
+    labels:
+      name: database-connection-failure
+      app.kubernetes.io/part-of: litmus
+      app.kubernetes.io/component: experiment
+      app.kubernetes.io/version: latest
+---
+# Redis 캐시 실패 실험
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: redis-cache-failure
+  namespace: game-production
+  labels:
+    app: game-service
+    team: game-sre
+spec:
+  definition:
+    scope: Namespaced
+    image: "litmuschaos/go-runner:latest"
+    imagePullPolicy: Always
+    args:
+      - -c
+      - ./experiments -name redis-cache-failure
+    command:
+      - /bin/bash
+    env:
+      - name: TOTAL_CHAOS_DURATION
+        value: "180"
+      - name: RAMP_TIME
+        value: "20"
+      - name: TARGET_CONTAINER
+        value: "redis"
+      - name: CONTAINER_RUNTIME
+        value: "docker"
+    labels:
+      name: redis-cache-failure
+      app.kubernetes.io/part-of: litmus
+      app.kubernetes.io/component: experiment
+      app.kubernetes.io/version: latest
+---
+# 외부 API 연결 실패 실험
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: external-api-failure
+  namespace: game-production
+  labels:
+    app: game-service
+    team: game-sre
+spec:
+  definition:
+    scope: Namespaced
+    image: "litmuschaos/go-runner:latest"
+    imagePullPolicy: Always
+    args:
+      - -c
+      - ./experiments -name external-api-failure
+    command:
+      - /bin/bash
+    env:
+      - name: TOTAL_CHAOS_DURATION
+        value: "240"
+      - name: RAMP_TIME
+        value: "30"
+      - name: TARGET_SERVICE
+        value: "payment-gateway"
+      - name: FAILURE_TYPE
+        value: "connection-timeout"
+    labels:
+      name: external-api-failure
+      app.kubernetes.io/part-of: litmus
+      app.kubernetes.io/component: experiment
+      app.kubernetes.io/version: latest
+---
+# 서비스 디스커버리 실패 실험
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: service-discovery-failure
+  namespace: game-production
+  labels:
+    app: game-service
+    team: game-sre
+spec:
+  definition:
+    scope: Namespaced
+    image: "litmuschaos/go-runner:latest"
+    imagePullPolicy: Always
+    args:
+      - -c
+      - ./experiments -name service-discovery-failure
+    command:
+      - /bin/bash
+    env:
+      - name: TOTAL_CHAOS_DURATION
+        value: "300"
+      - name: RAMP_TIME
+        value: "30"
+      - name: TARGET_SERVICE
+        value: "game-server"
+      - name: FAILURE_TYPE
+        value: "dns-resolution-failure"
+    labels:
+      name: service-discovery-failure
+      app.kubernetes.io/part-of: litmus
+      app.kubernetes.io/component: experiment
+      app.kubernetes.io/version: latest
+---
+# 스토리지 I/O 실패 실험
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: storage-io-failure
+  namespace: game-production
+  labels:
+    app: game-service
+    team: game-sre
+spec:
+  definition:
+    scope: Namespaced
+    image: "litmuschaos/go-runner:latest"
+    imagePullPolicy: Always
+    args:
+      - -c
+      - ./experiments -name storage-io-failure
+    command:
+      - /bin/bash
+    env:
+      - name: TOTAL_CHAOS_DURATION
+        value: "180"
+      - name: RAMP_TIME
+        value: "20"
+      - name: TARGET_CONTAINER
+        value: "game-persistence"
+      - name: FAILURE_TYPE
+        value: "disk-io-latency"
+      - name: LATENCY
+        value: "5000"
+    labels:
+      name: storage-io-failure
+      app.kubernetes.io/part-of: litmus
+      app.kubernetes.io/component: experiment
+      app.kubernetes.io/version: latest
+---
+# 복합 장애 시나리오 실험
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: compound-failure-scenario
+  namespace: game-production
+  labels:
+    app: game-service
+    team: game-sre
+spec:
+  definition:
+    scope: Namespaced
+    image: "litmuschaos/go-runner:latest"
+    imagePullPolicy: Always
+    args:
+      - -c
+      - ./experiments -name compound-failure-scenario
+    command:
+      - /bin/bash
+    env:
+      - name: TOTAL_CHAOS_DURATION
+        value: "600"
+      - name: RAMP_TIME
+        value: "60"
+      - name: SCENARIO_TYPE
+        value: "cascading-failure"
+      - name: FAILURE_SEQUENCE
+        value: "network-delay,service-failure,database-failure"
+    labels:
+      name: compound-failure-scenario
+      app.kubernetes.io/part-of: litmus
+      app.kubernetes.io/component: experiment
+      app.kubernetes.io/version: latest
+---
+# 카오스 실험 스케줄러
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosSchedule
+metadata:
+  name: game-service-weekly-chaos
+  namespace: game-production
+  labels:
+    app: game-service
+    team: game-sre
+spec:
+  schedule: "0 2 * * 0"  # 매주 일요일 오전 2시
+  engineTemplateSpec:
+    appinfo:
+      appns: game-production
+      applabel: "app=game-server"
+      appkind: deployment
+
+    engineState: "active"
+    chaosServiceAccount: game-service-chaos-sa
+
+    experiments:
+      - name: pod-delete
+        spec:
+          components:
+            env:
+              - name: TOTAL_CHAOS_DURATION
+                value: "60"
+              - name: CHAOS_INTERVAL
+                value: "30"
+              - name: FORCE
+                value: "true"
+              - name: PODS_AFFECTED_PERC
+                value: "10"
+              - name: RAMP_TIME
+                value: "10"
+
+      - name: network-delay
+        spec:
+          components:
+            env:
+              - name: TOTAL_CHAOS_DURATION
+                value: "120"
+              - name: NETWORK_DELAY
+                value: "1000"
+              - name: NETWORK_JITTER
+                value: "500"
+              - name: RAMP_TIME
+                value: "10"
+              - name: PODS_AFFECTED_PERC
+                value: "20"
+---
+# 카오스 실험 결과 수집기
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosResult
+metadata:
+  name: game-service-chaos-result
+  namespace: game-production
+  labels:
+    app: game-service
+    team: game-sre
+spec:
+  engineName: game-service-chaos-engine
+  experimentName: pod-delete
+  status: Running
+  probeStatus:
+    - name: "game-service-availability"
+      type: "httpProbe"
+      mode: "Continuous"
+      url: "http://game-server:8080/health"
+      criteria: "success"
+      timeout: 10
+      interval: 5
+      retry: 3
+      probeTimeout: 5
+      initialDelaySeconds: 10
+      stopOnFailure: true
+    - name: "game-service-response-time"
+      type: "httpProbe"
+      mode: "Continuous"
+      url: "http://game-server:8080/health"
+      criteria: "success"
+      timeout: 5
+      interval: 10
+      retry: 2
+      probeTimeout: 5
+      initialDelaySeconds: 10
+      stopOnFailure: false
+---
+# 카오스 실험 모니터링 대시보드
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chaos-monitoring-dashboard
+  namespace: monitoring
+  labels:
+    app: grafana
+    component: dashboard
+    team: game-sre
+data:
+  chaos-dashboard.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "Game Service Chaos Engineering Dashboard",
+        "tags": ["chaos-engineering", "game-service", "sre"],
+        "timezone": "browser",
+        "panels": [
+          {
+            "id": 1,
+            "title": "Chaos Experiment Status",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "chaos_experiment_status_total",
+                "legendFormat": "{{experiment_name}} - {{status}}"
+              }
+            ]
+          },
+          {
+            "id": 2,
+            "title": "System Resilience Metrics",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "game_server_availability",
+                "legendFormat": "Game Server Availability"
+              },
+              {
+                "expr": "game_matching_success_rate",
+                "legendFormat": "Matchmaking Success Rate"
+              },
+              {
+                "expr": "game_data_persistence_success_rate",
+                "legendFormat": "Data Persistence Success Rate"
+              }
+            ]
+          },
+          {
+            "id": 3,
+            "title": "Recovery Time Analysis",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "chaos_recovery_time_seconds",
+                "legendFormat": "Recovery Time - {{experiment_name}}"
+              }
+            ]
+          },
+          {
+            "id": 4,
+            "title": "User Impact During Chaos",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "game_active_users_total",
+                "legendFormat": "Active Users"
+              },
+              {
+                "expr": "game_requests_total",
+                "legendFormat": "Total Requests"
+              },
+              {
+                "expr": "game_errors_total",
+                "legendFormat": "Total Errors"
+              }
+            ]
+          }
+        ],
+        "time": {
+          "from": "now-1h",
+          "to": "now"
+        },
+        "refresh": "10s"
+      }
+    }
+---
+# 카오스 실험 알림 규칙
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: chaos-engineering-alerts
+  namespace: monitoring
+  labels:
+    app: prometheus
+    component: rules
+    team: game-sre
+spec:
+  groups:
+    - name: chaos-engineering
+      rules:
+        - alert: ChaosExperimentFailure
+          expr: chaos_experiment_status_total{status="failed"} > 0
+          for: 1m
+          labels:
+            severity: warning
+            service: game-service
+            team: game-sre
+          annotations:
+            summary: "카오스 실험 실패"
+            description: "카오스 실험 {{ $labels.experiment_name }}이 실패했습니다."
+            runbook_url: "https://runbooks.game-sre.com/chaos-experiment-failure"
+
+        - alert: ChaosExperimentUserImpact
+          expr: |
+            (game_errors_total - game_errors_total offset 5m) / game_requests_total > 0.1
+          for: 2m
+          labels:
+            severity: critical
+            service: game-service
+            team: game-sre
+          annotations:
+            summary: "카오스 실험 중 사용자 영향 과다"
+            description: "카오스 실험 중 오류율이 10%를 초과했습니다."
+            runbook_url: "https://runbooks.game-sre.com/chaos-user-impact"
+
+        - alert: ChaosExperimentRecoveryDelay
+          expr: chaos_recovery_time_seconds > 300
+          for: 1m
+          labels:
+            severity: warning
+            service: game-service
+            team: game-sre
+          annotations:
+            summary: "카오스 실험 복구 지연"
+            description: "카오스 실험 {{ $labels.experiment_name }}의 복구 시간이 5분을 초과했습니다."
+            runbook_url: "https://runbooks.game-sre.com/chaos-recovery-delay"
+
+        - alert: ChaosExperimentSLOViolation
+          expr: |
+            game_server_availability < 0.99 or
+            game_matching_success_rate < 0.95 or
+            game_data_persistence_success_rate < 0.999
+          for: 1m
+          labels:
+            severity: critical
+            service: game-service
+            team: game-sre
+          annotations:
+            summary: "카오스 실험 중 SLO 위반"
+            description: "카오스 실험 중 SLO 지표가 임계값을 초과했습니다."
+            runbook_url: "https://runbooks.game-sre.com/chaos-slo-violation"

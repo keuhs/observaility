@@ -1,0 +1,539 @@
+# Litmus Chaos 엔지니어링 설치 매니페스트
+# 모바일 게임 서비스 카오스 엔지니어링 환경 구성
+
+---
+# 카오스 엔지니어링 네임스페이스
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: chaos-engineering
+  labels:
+    name: chaos-engineering
+    app.kubernetes.io/name: litmus-chaos
+    app.kubernetes.io/component: chaos-engine
+    app.kubernetes.io/part-of: game-service-sre
+
+---
+# 카오스 엔지니어링 서비스 계정
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: game-service-chaos-sa
+  namespace: chaos-engineering
+  labels:
+    app.kubernetes.io/name: litmus-chaos
+    app.kubernetes.io/component: chaos-engine
+    app.kubernetes.io/part-of: game-service-sre
+
+---
+# 카오스 엔지니어링 ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: game-service-chaos-role
+  labels:
+    app.kubernetes.io/name: litmus-chaos
+    app.kubernetes.io/component: chaos-engine
+    app.kubernetes.io/part-of: game-service-sre
+rules:
+  # Pod 관리 권한
+  - apiGroups: [""]
+    resources: ["pods", "pods/logs", "pods/exec"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # Deployment 관리 권한
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # Service 관리 권한
+  - apiGroups: [""]
+    resources: ["services", "endpoints"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # ConfigMap 및 Secret 관리 권한
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # Node 관리 권한
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+
+  # 네임스페이스 관리 권한
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+
+  # 이벤트 관리 권한
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # PersistentVolumeClaim 관리 권한
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # NetworkPolicy 관리 권한
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+---
+# 카오스 엔지니어링 ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: game-service-chaos-role-binding
+  labels:
+    app.kubernetes.io/name: litmus-chaos
+    app.kubernetes.io/component: chaos-engine
+    app.kubernetes.io/part-of: game-service-sre
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: game-service-chaos-role
+subjects:
+  - kind: ServiceAccount
+    name: game-service-chaos-sa
+    namespace: chaos-engineering
+
+---
+# Litmus Chaos Operator Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litmus-chaos-operator
+  namespace: chaos-engineering
+  labels:
+    app.kubernetes.io/name: litmus-chaos
+    app.kubernetes.io/component: chaos-operator
+    app.kubernetes.io/part-of: game-service-sre
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: litmus-chaos
+      app.kubernetes.io/component: chaos-operator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: litmus-chaos
+        app.kubernetes.io/component: chaos-operator
+    spec:
+      serviceAccountName: game-service-chaos-sa
+      containers:
+        - name: chaos-operator
+          image: litmuschaos/chaos-operator:2.21.0
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: WATCH_NAMESPACE
+              value: ""
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OPERATOR_NAME
+              value: "game-service-chaos-operator"
+            - name: CHAOS_RUNNER_IMAGE
+              value: "litmuschaos/chaos-runner:2.21.0"
+            - name: CHAOS_EXPORTER_IMAGE
+              value: "litmuschaos/chaos-exporter:2.21.0"
+          resources:
+            requests:
+              memory: 128Mi
+              cpu: 100m
+            limits:
+              memory: 256Mi
+              cpu: 200m
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 5
+
+---
+# Litmus Chaos Operator Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: litmus-chaos-operator
+  namespace: chaos-engineering
+  labels:
+    app.kubernetes.io/name: litmus-chaos
+    app.kubernetes.io/component: chaos-operator
+    app.kubernetes.io/part-of: game-service-sre
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: litmus-chaos
+    app.kubernetes.io/component: chaos-operator
+
+---
+# Litmus Chaos Runner Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litmus-chaos-runner
+  namespace: chaos-engineering
+  labels:
+    app.kubernetes.io/name: litmus-chaos
+    app.kubernetes.io/component: chaos-runner
+    app.kubernetes.io/part-of: game-service-sre
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: litmus-chaos
+      app.kubernetes.io/component: chaos-runner
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: litmus-chaos
+        app.kubernetes.io/component: chaos-runner
+    spec:
+      serviceAccountName: game-service-chaos-sa
+      containers:
+        - name: chaos-runner
+          image: litmuschaos/chaos-runner:2.21.0
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: CHAOS_NAMESPACE
+              value: "chaos-engineering"
+            - name: CHAOS_SERVICE_ACCOUNT
+              value: "game-service-chaos-sa"
+            - name: CHAOS_RUNNER_IMAGE
+              value: "litmuschaos/chaos-runner:2.21.0"
+            - name: CHAOS_EXPERIMENT_IMAGE
+              value: "litmuschaos/go-runner:2.21.0"
+          resources:
+            requests:
+              memory: 256Mi
+              cpu: 200m
+            limits:
+              memory: 512Mi
+              cpu: 500m
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 5
+
+---
+# Litmus Chaos Runner Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: litmus-chaos-runner
+  namespace: chaos-engineering
+  labels:
+    app.kubernetes.io/name: litmus-chaos
+    app.kubernetes.io/component: chaos-runner
+    app.kubernetes.io/part-of: game-service-sre
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: litmus-chaos
+    app.kubernetes.io/component: chaos-runner
+
+---
+# Litmus Chaos Exporter Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litmus-chaos-exporter
+  namespace: chaos-engineering
+  labels:
+    app.kubernetes.io/name: litmus-chaos
+    app.kubernetes.io/component: chaos-exporter
+    app.kubernetes.io/part-of: game-service-sre
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: litmus-chaos
+      app.kubernetes.io/component: chaos-exporter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: litmus-chaos
+        app.kubernetes.io/component: chaos-exporter
+    spec:
+      serviceAccountName: game-service-chaos-sa
+      containers:
+        - name: chaos-exporter
+          image: litmuschaos/chaos-exporter:2.21.0
+          ports:
+            - containerPort: 8080
+              name: http
+            - containerPort: 9090
+              name: metrics
+          env:
+            - name: CHAOS_NAMESPACE
+              value: "chaos-engineering"
+            - name: METRICS_PORT
+              value: "9090"
+          resources:
+            requests:
+              memory: 128Mi
+              cpu: 100m
+            limits:
+              memory: 256Mi
+              cpu: 200m
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 5
+
+---
+# Litmus Chaos Exporter Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: litmus-chaos-exporter
+  namespace: chaos-engineering
+  labels:
+    app.kubernetes.io/name: litmus-chaos
+    app.kubernetes.io/component: chaos-exporter
+    app.kubernetes.io/part-of: game-service-sre
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: http
+    - port: 9090
+      targetPort: 9090
+      protocol: TCP
+      name: metrics
+  selector:
+    app.kubernetes.io/name: litmus-chaos
+    app.kubernetes.io/component: chaos-exporter
+
+---
+# 카오스 엔지니어링 모니터링 ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chaos-engineering-monitoring
+  namespace: chaos-engineering
+  labels:
+    app.kubernetes.io/name: litmus-chaos
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/part-of: game-service-sre
+data:
+  prometheus-rules.yaml: |
+    groups:
+    - name: chaos-engineering-monitoring
+      rules:
+      # 카오스 실험 성공률
+      - record: chaos:experiment_success_rate
+        expr: |
+          sum(rate(chaos_experiment_success_total[5m])) by (experiment_name, namespace)
+          /
+          sum(rate(chaos_experiment_total[5m])) by (experiment_name, namespace)
+
+      # 카오스 실험 실행 시간
+      - record: chaos:experiment_duration_seconds
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(chaos_experiment_duration_seconds_bucket[5m])) by (le, experiment_name, namespace)
+          )
+
+      # 카오스 실험 복구 시간
+      - record: chaos:recovery_time_seconds
+        expr: |
+          sum(rate(chaos_recovery_time_seconds_sum[5m])) by (experiment_name, namespace)
+          /
+          sum(rate(chaos_recovery_time_seconds_count[5m])) by (experiment_name, namespace)
+
+      # 카오스 실험 사용자 영향
+      - record: chaos:user_impact_rate
+        expr: |
+          sum(rate(chaos_user_impact_total[5m])) by (experiment_name, namespace)
+          /
+          sum(rate(chaos_experiment_total[5m])) by (experiment_name, namespace)
+
+---
+# 카오스 엔지니어링 대시보드 ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chaos-engineering-dashboards
+  namespace: chaos-engineering
+  labels:
+    app.kubernetes.io/name: litmus-chaos
+    app.kubernetes.io/component: dashboards
+    app.kubernetes.io/part-of: game-service-sre
+data:
+  chaos-engineering-overview.json: |
+    {
+      "title": "Chaos Engineering Overview",
+      "type": "dashboard",
+      "panels": [
+        {
+          "id": 1,
+          "title": "Chaos Experiment Success Rate",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "chaos:experiment_success_rate",
+              "legendFormat": "{{experiment_name}}"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "Chaos Experiment Duration",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "chaos:experiment_duration_seconds",
+              "legendFormat": "{{experiment_name}}"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "title": "Recovery Time",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "chaos:recovery_time_seconds",
+              "legendFormat": "{{experiment_name}}"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "title": "User Impact Rate",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "chaos:user_impact_rate",
+              "legendFormat": "{{experiment_name}}"
+            }
+          ]
+        }
+      ]
+    }
+
+---
+# 카오스 엔지니어링 Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: chaos-engineering-ingress
+  namespace: chaos-engineering
+  labels:
+    app.kubernetes.io/name: litmus-chaos
+    app.kubernetes.io/component: ingress
+    app.kubernetes.io/part-of: game-service-sre
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+spec:
+  rules:
+    - host: chaos.game-sre.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: litmus-chaos-exporter
+                port:
+                  number: 8080
+          - path: /metrics
+            pathType: Prefix
+            backend:
+              service:
+                name: litmus-chaos-exporter
+                port:
+                  number: 9090
+
+---
+# 카오스 엔지니어링 네트워크 정책
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: chaos-engineering-network-policy
+  namespace: chaos-engineering
+  labels:
+    app.kubernetes.io/name: litmus-chaos
+    app.kubernetes.io/component: network-policy
+    app.kubernetes.io/part-of: game-service-sre
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: litmus-chaos
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9090
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: game-production
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: game-production
+      ports:
+        - protocol: TCP
+          port: 8080
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9090

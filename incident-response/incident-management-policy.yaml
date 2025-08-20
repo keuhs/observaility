@@ -1,0 +1,419 @@
+# 게임 서비스 인시던트 관리 정책
+# SRE 팀의 표준화된 인시던트 대응 체계
+
+apiVersion: sre.observaility.com/v1
+kind: IncidentManagementPolicy
+metadata:
+  name: game-service-incident-policy
+  namespace: game-sre
+  labels:
+    service: game-service
+    team: game-sre
+    environment: production
+spec:
+  description: "모바일 게임 서비스 인시던트 대응 표준 정책"
+
+  # 인시던트 심각도 정의
+  severityLevels:
+    - level: "Sev0"
+      name: "전면 중단"
+      description: "게임 서비스 전체가 사용 불가능한 상태"
+      sla:
+        mttd: "1분"
+        mttr: "15분"
+        escalation: "즉시"
+      impact:
+        users: "100%"
+        revenue: "직접적 손실"
+        reputation: "심각한 손상"
+      examples:
+        - "게임 서버 전체 다운"
+        - "데이터베이스 연결 완전 차단"
+        - "네트워크 인프라 장애"
+
+    - level: "Sev1"
+      name: "핵심 기능 장애"
+      description: "게임 플레이에 필수적인 기능이 작동하지 않는 상태"
+      sla:
+        mttd: "5분"
+        mttr: "30분"
+        escalation: "5분 내"
+      impact:
+        users: "50-80%"
+        revenue: "중간 손실"
+        reputation: "중간 손상"
+      examples:
+        - "게임 매칭 시스템 장애"
+        - "결제 시스템 오류"
+        - "게임 데이터 저장 실패"
+
+    - level: "Sev2"
+      name: "부분 기능 장애"
+      description: "게임 플레이에 영향을 주지만 우회 가능한 기능 장애"
+      sla:
+        mttd: "15분"
+        mttr: "2시간"
+        escalation: "30분 내"
+      impact:
+        users: "20-50%"
+        revenue: "경미한 손실"
+        reputation: "경미한 손상"
+      examples:
+        - "친구 목록 로딩 실패"
+        - "리더보드 표시 오류"
+        - "알림 시스템 장애"
+
+    - level: "Sev3"
+      name: "성능 저하"
+      description: "게임 플레이 가능하지만 성능이 저하된 상태"
+      sla:
+        mttd: "30분"
+        mttr: "4시간"
+        escalation: "1시간 내"
+      impact:
+        users: "10-30%"
+        revenue: "미미한 손실"
+        reputation: "거의 영향 없음"
+      examples:
+        - "게임 로딩 시간 증가"
+        - "응답 지연 발생"
+        - "일부 UI 렌더링 지연"
+
+  # 온콜 로테이션 정책
+  oncallRotation:
+    primary:
+      duration: "1주"
+      handover: "월요일 오전 9시"
+      backup: "2명"
+
+    secondary:
+      duration: "1주"
+      handover: "월요일 오전 9시"
+      backup: "1명"
+
+    escalation:
+      - level: "1차"
+        contact: "primary-oncall"
+        timeout: "5분"
+      - level: "2차"
+        contact: "secondary-oncall"
+        timeout: "10분"
+      - level: "3차"
+        contact: "team-lead"
+        timeout: "30분"
+      - level: "4차"
+        contact: "cto"
+        timeout: "1시간"
+
+  # 인시던트 대응 역할 정의
+  incidentRoles:
+    - role: "Incident Commander (IC)"
+      description: "인시던트 대응 총괄 및 의사결정"
+      responsibilities:
+        - "인시던트 상황 파악 및 우선순위 결정"
+        - "대응 팀 구성 및 역할 분담"
+        - "스테이크홀더와의 커뮤니케이션"
+        - "인시던트 해결 후 팀 해산"
+      skills:
+        - "상황 판단 능력"
+        - "의사결정 능력"
+        - "커뮤니케이션 능력"
+
+    - role: "Operations Lead"
+      description: "기술적 문제 해결 및 복구 작업 총괄"
+      responsibilities:
+        - "기술적 문제 진단 및 해결 방안 수립"
+        - "복구 작업 계획 및 실행"
+        - "기술팀과의 협업 조율"
+        - "복구 진행 상황 보고"
+      skills:
+        - "시스템 아키텍처 이해"
+        - "문제 해결 능력"
+        - "기술적 전문성"
+
+    - role: "Communications Lead"
+      description: "내부/외부 커뮤니케이션 및 상태 업데이트"
+      responsibilities:
+        - "인시던트 상태 페이지 업데이트"
+        - "고객 지원팀과의 연락"
+        - "내부 팀 간 정보 공유"
+        - "매체/소셜미디어 대응"
+      skills:
+        - "명확한 커뮤니케이션"
+        - "위기 커뮤니케이션"
+        - "스테이크홀더 관리"
+
+    - role: "Liaison"
+      description: "외부 팀/조직과의 연락 및 협업 조율"
+      responsibilities:
+        - "클라우드 제공업체와의 연락"
+        - "CDN/네트워크 제공업체와의 협업"
+        - "보안팀과의 연락"
+        - "법무팀과의 협업"
+      skills:
+        - "외부 조직과의 협업"
+        - "계약/서비스 레벨 이해"
+        - "협상 능력"
+
+    - role: "Scribe"
+      description: "인시던트 타임라인 및 활동 기록"
+      responsibilities:
+        - "인시던트 타임라인 작성"
+        - "모든 활동 및 결정사항 기록"
+        - "증거 수집 및 보관"
+        - "포스트모템 자료 준비"
+      skills:
+        - "정확한 기록 능력"
+        - "객관적 관찰"
+        - "문서화 능력"
+
+  # 커뮤니케이션 정책
+  communicationPolicy:
+    internal:
+      channels:
+        - name: "game-sre-incident"
+          type: "slack"
+          purpose: "인시던트 대응 팀 간 소통"
+          access: "game-sre-team"
+
+        - name: "game-ops-alerts"
+          type: "slack"
+          purpose: "운영팀 알림 및 협업"
+          access: "game-ops-team"
+
+        - name: "game-dev-incident"
+          type: "slack"
+          purpose: "개발팀 협업 및 기술 지원"
+          access: "game-dev-team"
+
+    external:
+      channels:
+        - name: "status-page"
+          type: "web"
+          purpose: "고객 공지 및 서비스 상태"
+          access: "public"
+
+        - name: "customer-support"
+          type: "email"
+          purpose: "고객 문의 응대"
+          access: "customer-support-team"
+
+        - name: "media-relations"
+          type: "phone"
+          purpose: "매체 문의 대응"
+          access: "pr-team"
+
+    templates:
+      status_update: |
+        🚨 [{{.Severity}}] {{.Service}} 인시던트 발생
+
+        **상황**: {{.Description}}
+        **영향**: {{.Impact}}
+        **진행상황**: {{.Status}}
+        **예상 해결시간**: {{.ETA}}
+
+        자세한 내용은 상태페이지를 확인해주세요.
+
+      resolution_notice: |
+        ✅ [RESOLVED] {{.Service}} 인시던트 해결
+
+        **해결시간**: {{.ResolutionTime}}
+        **원인**: {{.RootCause}}
+        **조치사항**: {{.Actions}}
+
+        정상 서비스가 재개되었습니다.
+
+  # 에스컬레이션 정책
+  escalationPolicy:
+    automatic:
+      - condition: "Sev0 인시던트 발생"
+        action: "즉시 CTO 및 모든 팀 리드에게 알림"
+        timeout: "0분"
+
+      - condition: "Sev1 인시던트 15분 미해결"
+        action: "팀 리드에게 에스컬레이션"
+        timeout: "15분"
+
+      - condition: "Sev2 인시던트 1시간 미해결"
+        action: "팀 리드에게 에스컬레이션"
+        timeout: "1시간"
+
+      - condition: "Sev3 인시던트 4시간 미해결"
+        action: "팀 리드에게 에스컬레이션"
+        timeout: "4시간"
+
+    manual:
+      - condition: "기술적 한계 도달"
+        action: "외부 전문가 또는 벤더 지원 요청"
+
+      - condition: "비즈니스 영향 확대"
+        action: "경영진에게 의사결정 요청"
+
+      - condition: "보안 사고 의심"
+        action: "보안팀 및 법무팀에 즉시 보고"
+
+  # 인시던트 분류 체계
+  incidentClassification:
+    categories:
+      - name: "infrastructure"
+        description: "인프라 관련 장애"
+        examples:
+          - "서버 다운"
+          - "네트워크 장애"
+          - "스토리지 문제"
+
+      - name: "application"
+        description: "애플리케이션 소프트웨어 장애"
+        examples:
+          - "코드 버그"
+          - "메모리 누수"
+          - "데이터베이스 쿼리 오류"
+
+      - name: "deployment"
+        description: "배포 관련 장애"
+        examples:
+          - "롤백 실패"
+          - "설정 오류"
+          - "의존성 문제"
+
+      - name: "security"
+        description: "보안 관련 사고"
+        examples:
+          - "DDoS 공격"
+          - "데이터 유출"
+          - "권한 오류"
+
+      - name: "performance"
+        description: "성능 저하"
+        examples:
+          - "응답 지연"
+          - "처리량 저하"
+          - "리소스 부족"
+
+    tags:
+      - "game-server"
+      - "matchmaking"
+      - "data-persistence"
+      - "payment"
+      - "user-authentication"
+      - "real-time-communication"
+
+  # 포스트모템 정책
+  postmortemPolicy:
+    required: "Sev0, Sev1 인시던트"
+    optional: "Sev2, Sev3 인시던트"
+    timeline: "인시던트 해결 후 48시간 내"
+    participants:
+      - "Incident Commander"
+      - "Operations Lead"
+      - "관련 기술 담당자"
+      - "팀 리드"
+      - "보안팀 (보안 사고 시)"
+
+    deliverables:
+      - "인시던트 타임라인"
+      - "근본 원인 분석"
+      - "영향 범위 및 손실 평가"
+      - "교훈 및 개선점"
+      - "액션 아이템 및 담당자"
+      - "재발 방지 계획"
+
+    review:
+      - "팀 전체 리뷰"
+      - "경영진 보고"
+      - "문서화 및 공유"
+      - "훈련 자료 업데이트"
+
+  # 인시던트 메트릭 및 KPI
+  incidentMetrics:
+    primary:
+      - name: "MTTD (Mean Time To Detection)"
+        description: "인시던트 발생부터 감지까지의 평균 시간"
+        target: "Sev0: 1분, Sev1: 5분, Sev2: 15분, Sev3: 30분"
+        unit: "분"
+
+      - name: "MTTR (Mean Time To Resolution)"
+        description: "인시던트 감지부터 해결까지의 평균 시간"
+        target: "Sev0: 15분, Sev1: 30분, Sev2: 2시간, Sev3: 4시간"
+        unit: "분"
+
+      - name: "MTBF (Mean Time Between Failures)"
+        description: "인시던트 간 평균 간격"
+        target: "월 1회 미만"
+        unit: "일"
+
+    secondary:
+      - name: "인시던트 빈도"
+        description: "단위 시간당 인시던트 발생 횟수"
+        target: "월 5회 미만"
+        unit: "회/월"
+
+      - name: "재발률"
+        description: "동일한 원인으로 재발한 인시던트 비율"
+        target: "10% 미만"
+        unit: "퍼센트"
+
+      - name: "고객 만족도"
+        description: "인시던트 대응에 대한 고객 만족도"
+        target: "4.0/5.0 이상"
+        unit: "점수"
+
+  # 인시던트 대응 도구 및 자동화
+  toolsAndAutomation:
+    monitoring:
+      - name: "Prometheus + Grafana"
+        purpose: "메트릭 수집 및 시각화"
+        integration: "자동 알림 및 대시보드"
+
+      - name: "AlertManager"
+        purpose: "알림 라우팅 및 그룹핑"
+        integration: "Slack, PagerDuty 연동"
+
+    communication:
+      - name: "Slack"
+        purpose: "팀 간 실시간 소통"
+        integration: "알림 봇, 워크플로우"
+
+      - name: "StatusPage"
+        purpose: "고객 공지 및 상태 업데이트"
+        integration: "자동 상태 업데이트"
+
+    documentation:
+      - name: "Confluence/Notion"
+        purpose: "인시던트 문서화 및 지식 관리"
+        integration: "템플릿 및 자동화"
+
+      - name: "Jira/Linear"
+        purpose: "액션 아이템 추적"
+        integration: "자동 티켓 생성"
+
+    automation:
+      - name: "Runbook 자동화"
+        purpose: "반복 작업 자동화"
+        integration: "ChatOps 명령어"
+
+      - name: "복구 스크립트"
+        purpose: "일반적인 문제 자동 복구"
+        integration: "Prometheus 규칙 연동"
+
+  # 인시던트 대응 훈련 및 교육
+  trainingAndEducation:
+    frequency: "분기별"
+    participants: "전체 SRE 팀"
+    format:
+      - "테이블톱 연습"
+      - "실제 시스템을 이용한 시뮬레이션"
+      - "역할극 및 시나리오 기반 훈련"
+
+    topics:
+      - "인시던트 대응 절차"
+      - "도구 사용법"
+      - "커뮤니케이션 스킬"
+      - "문제 해결 기법"
+      - "포스트모템 작성법"
+
+    evaluation:
+      - "훈련 성과 측정"
+      - "개선점 식별"
+      - "훈련 자료 업데이트"
+      - "역할 및 책임 명확화"

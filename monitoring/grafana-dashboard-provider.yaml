@@ -1,0 +1,151 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+  namespace: monitoring
+  labels:
+    app: grafana
+    component: dashboard-provider
+data:
+  dashboard-providers.yaml: |
+    apiVersion: 1
+    providers:
+      - name: 'game-service'
+        orgId: 1
+        folder: 'Game Service'
+        type: file
+        disableDelete: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/game-service
+      - name: 'infrastructure'
+        orgId: 1
+        folder: 'Infrastructure'
+        type: file
+        disableDelete: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/infrastructure
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: monitoring
+  labels:
+    app: grafana
+    component: dashboards
+data:
+  # 게임 서비스 개요 대시보드
+  game-service-overview.json: |
+    {
+      "dashboard": {
+        "title": "Game Service Overview",
+        "tags": ["game-service", "overview", "sre"],
+        "timezone": "Asia/Seoul"
+      }
+    }
+
+  # 게임 서버 SLO 대시보드
+  game-server-slo.json: |
+    {
+      "dashboard": {
+        "title": "Game Server SLO Dashboard",
+        "tags": ["game-service", "slo", "game-server", "sre"],
+        "timezone": "Asia/Seoul"
+      }
+    }
+
+  # 매칭 서비스 SLO 대시보드
+  matchmaking-slo.json: |
+    {
+      "dashboard": {
+        "title": "Matchmaking SLO Dashboard",
+        "tags": ["game-service", "slo", "matchmaking", "sre"],
+        "timezone": "Asia/Seoul"
+      }
+    }
+
+  # 인프라 모니터링 대시보드
+  game-infrastructure.json: |
+    {
+      "dashboard": {
+        "title": "Game Infrastructure Monitoring",
+        "tags": ["game-service", "infrastructure", "monitoring", "sre"],
+        "timezone": "Asia/Seoul"
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana-dashboard-loader
+  namespace: monitoring
+  labels:
+    app: grafana
+    component: dashboard-loader
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+      component: dashboard-loader
+  template:
+    metadata:
+      labels:
+        app: grafana
+        component: dashboard-loader
+    spec:
+      containers:
+      - name: dashboard-loader
+        image: busybox:1.35
+        command:
+        - /bin/sh
+        - -c
+        - |
+          # 대시보드 파일들을 Grafana 볼륨에 복사
+          cp /dashboards/* /grafana-dashboards/
+          # Grafana가 대시보드를 로드할 수 있도록 대기
+          while true; do
+            sleep 3600
+          done
+        volumeMounts:
+        - name: dashboards
+          mountPath: /dashboards
+        - name: grafana-dashboards
+          mountPath: /grafana-dashboards
+      volumes:
+      - name: dashboards
+        configMap:
+          name: grafana-dashboards
+      - name: grafana-dashboards
+        emptyDir: {}
+      initContainers:
+      - name: init-dashboards
+        image: busybox:1.35
+        command:
+        - /bin/sh
+        - -c
+        - |
+          # Grafana 볼륨 초기화
+          mkdir -p /grafana-dashboards/game-service
+          mkdir -p /grafana-dashboards/infrastructure
+        volumeMounts:
+        - name: grafana-dashboards
+          mountPath: /grafana-dashboards
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-dashboard-loader
+  namespace: monitoring
+  labels:
+    app: grafana
+    component: dashboard-loader
+spec:
+  ports:
+  - port: 8080
+    targetPort: 8080
+  selector:
+    app: grafana
+    component: dashboard-loader
